@@ -14,3 +14,4 @@ easyocr
 cloudinary
 APScheduler
 livekit-api>=1.0.0
+python-dotenv
