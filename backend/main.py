@@ -19,28 +19,59 @@ PASS_PERCENT = int(os.getenv("PASS_PERCENT", "60"))  # passing marks as a percen
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 STATUSES = ["Applied", "Under Review", "Shortlisted", "Interview", "Selected", "Rejected"]
 app = FastAPI(title="SkillSphere API")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["*"], allow_headers=["*"])
+cors_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "").split(",") if origin.strip()]
+if FRONTEND_URL and FRONTEND_URL not in cors_origins:
+    cors_origins.append(FRONTEND_URL)
+if "http://localhost:5173" not in cors_origins:
+    cors_origins.append("http://localhost:5173")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 bearer = HTTPBearer(auto_error=False)
 os.makedirs("uploads", exist_ok=True)
 
+@app.get("/health")
+def health():
+    return {"status": "ok", "database_configured": Session is not None}
+
 @app.on_event("startup")
 def start():
+    if engine is None or Session is None:
+        print("DATABASE_URL is not configured. API health check is available; database features are disabled.")
+        return
+
     Base.metadata.create_all(engine)
     s = Session()
-    if not s.query(User).filter_by(role="admin").first():
-        s.add(User(name="Admin", email="admin@skillsphere.com", role="admin", password_hash=hp("Admin@123")))
-        s.commit()
-    s.close()
+    try:
+        if not s.query(User).filter_by(role="admin").first():
+            s.add(User(name="Admin", email="admin@skillsphere.com", role="admin", password_hash=hp("Admin@123")))
+            s.commit()
+    finally:
+        s.close()
+
     delete_expired_recordings()
     if not recording_scheduler.running:
-        recording_scheduler.add_job(delete_expired_recordings, "interval", minutes=10, id="cloudinary_recording_expiry", replace_existing=True)
+        recording_scheduler.add_job(
+            delete_expired_recordings,
+            "interval",
+            minutes=10,
+            id="cloudinary_recording_expiry",
+            replace_existing=True,
+        )
         recording_scheduler.start()
 
 def hp(p): return bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
 def db():
+    if Session is None:
+        raise HTTPException(503, "Database is not configured. Set DATABASE_URL on the backend service.")
     s = Session()
-    try: yield s
-    finally: s.close()
+    try:
+        yield s
+    finally:
+        s.close()
 
 def me(c=Depends(bearer), s=Depends(db)):
     if not c: raise HTTPException(401, "Please log in")
