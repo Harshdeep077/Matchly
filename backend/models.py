@@ -10,10 +10,12 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-URL = os.getenv("DATABASE_URL")
+URL = os.getenv("DATABASE_URL", "").strip()
 
-engine = create_engine(URL, pool_pre_ping=True)
-Session = sessionmaker(bind=engine)
+# Allow the API health check to start before an external database is configured.
+# All database-backed endpoints return HTTP 503 until DATABASE_URL is set.
+engine = create_engine(URL, pool_pre_ping=True) if URL else None
+Session = sessionmaker(bind=engine) if engine is not None else None
 Base = declarative_base()
 PK = dict(primary_key=True)
 
