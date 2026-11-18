@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pymysql
+cryptography
+pyjwt
+bcrypt
+pydantic[email]
+python-multipart
+pymupdf
+pillow
+numpy
+easyocr
+cloudinary
+APScheduler
+livekit-api>=1.0.0

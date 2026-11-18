@@ -1,0 +1,49 @@
+/* MATCHLY — STAGE 2: parallax, floating 3D shapes, card tilt.
+   Load AFTER aurora-glass.css. To undo: remove its import line and the <Parallax/> tag. */
+
+:root{--px:0;--py:0;--sy:0}
+
+/* aurora blobs drift opposite to the mouse, each at its own depth */
+.aurora i:nth-child(1){translate:calc(var(--px)*-46px) calc(var(--py)*-34px)}
+.aurora i:nth-child(2){translate:calc(var(--px)*58px) calc(var(--py)*40px)}
+.aurora i:nth-child(3){translate:calc(var(--px)*-80px) calc(var(--py)*60px)}
+
+/* floating glass shapes, layered between the aurora and the page */
+.floaters{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;perspective:1100px}
+.fl{position:absolute;display:block;
+  translate:calc(var(--px)*var(--d,30)*1px) calc(var(--py)*var(--d,30)*1px - var(--sy)*var(--s,.04)*1px)}
+
+.orb{border-radius:50%;opacity:.8;animation:floaty var(--t,9s) ease-in-out infinite alternate;
+  background:radial-gradient(circle at 30% 26%,rgba(255,255,255,.95) 0 6%,rgba(255,255,255,0) 16%),radial-gradient(circle at 35% 30%,var(--c1),var(--c2) 72%);
+  box-shadow:inset -10px -14px 30px rgba(0,0,0,.2),inset 8px 8px 22px rgba(255,255,255,.5),0 24px 70px var(--glow)}
+.o1{left:5%;top:16%;width:120px;height:120px;--c1:#c4b5fd;--c2:#7c3aed;--d:44;--s:.05}
+.o2{right:6%;top:52%;width:180px;height:180px;--c1:#a5f3fc;--c2:#0ea5e9;--d:-62;--s:.08;--t:12s}
+.o3{left:46%;bottom:8%;width:72px;height:72px;--c1:#f0abfc;--c2:#a855f7;--d:26;--s:.03;--t:7s}
+[data-theme=dark] .orb{opacity:.55}
+
+.ring{border-radius:50%;opacity:.7;animation:spin3d var(--t,22s) linear infinite;
+  background:conic-gradient(#8b5cf6,#22d3ee,#4f6bff,#c026d3,#8b5cf6);
+  -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 9px),#000 calc(100% - 8px));
+  mask:radial-gradient(farthest-side,transparent calc(100% - 9px),#000 calc(100% - 8px));
+  filter:drop-shadow(0 0 12px rgba(124,77,255,.6))}
+.r1{right:17%;top:10%;width:230px;height:230px;--d:-36;--s:.06}
+.r2{left:20%;bottom:18%;width:150px;height:150px;--d:30;--s:.04;--t:30s;animation-direction:reverse}
+
+.gem{width:92px;height:92px;border-radius:24px;left:11%;bottom:30%;--d:50;--s:.07;opacity:.75;
+  background:linear-gradient(135deg,rgba(255,255,255,.7),rgba(124,77,255,.28) 55%,rgba(34,211,238,.3));
+  border:1px solid rgba(255,255,255,.7);box-shadow:inset 0 0 24px rgba(255,255,255,.4),0 18px 50px var(--glow);
+  animation:gemspin 16s linear infinite}
+[data-theme=dark] .ring{opacity:.5}[data-theme=dark] .gem{opacity:.5}
+
+@keyframes floaty{from{transform:translateY(-14px) scale(1)}to{transform:translateY(16px) scale(1.04)}}
+@keyframes spin3d{from{transform:rotateX(68deg) rotateZ(0)}to{transform:rotateX(68deg) rotateZ(360deg)}}
+@keyframes gemspin{from{transform:rotate3d(1,1,0,0deg) rotateZ(0)}to{transform:rotate3d(1,1,0,360deg) rotateZ(90deg)}}
+
+/* 3D tilt: the cards get depth, JS only sets the 'rotate' property */
+.grid,.grid4,.dgrid,.dgrid2,.split,.sections{perspective:1400px}
+.tilt:not(.authpanel){transition:rotate .22s ease-out,box-shadow .3s}
+.lift,.stat2{transition:transform .25s cubic-bezier(.2,.8,.2,1),rotate .22s ease-out,box-shadow .3s,border-color .3s}
+.tilt:not(.authpanel),.lift,.stat2{will-change:rotate}
+
+@media (max-width:860px){.floaters{display:none}}
+@media (prefers-reduced-motion:reduce){.fl{animation:none!important;translate:none}.aurora i{translate:none!important}}

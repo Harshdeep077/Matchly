@@ -1,0 +1,32 @@
+# Environment secrets
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Uploaded private documents
+backend/uploads/
+uploads/
+
+# Temporary files and backups
+*.bak
+*.tmp
+*.bak_before_otp
+
+# Previous Git history backup
+.git-old-backup/
+
+.git-old-backup/
