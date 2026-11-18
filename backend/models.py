@@ -10,10 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-URL = os.getenv(
-    "DATABASE_URL",
-    "mysql+pymysql://root:password@localhost:3306/skillsphere"
-)
+URL = os.getenv("DATABASE_URL")
 
 engine = create_engine(URL, pool_pre_ping=True)
 Session = sessionmaker(bind=engine)
