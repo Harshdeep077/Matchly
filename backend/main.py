@@ -19,11 +19,17 @@ PASS_PERCENT = int(os.getenv("PASS_PERCENT", "60"))  # passing marks as a percen
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 STATUSES = ["Applied", "Under Review", "Shortlisted", "Interview", "Selected", "Rejected"]
 app = FastAPI(title="SkillSphere API")
-cors_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "").split(",") if origin.strip()]
-if FRONTEND_URL and FRONTEND_URL not in cors_origins:
-    cors_origins.append(FRONTEND_URL)
-if "http://localhost:5173" not in cors_origins:
-    cors_origins.append("http://localhost:5173")
+# Always allow the production Vercel app, even if CORS_ORIGINS is missing
+# or was not configured correctly in the hosting dashboard.
+cors_origins = [origin.strip().rstrip("/") for origin in os.getenv("CORS_ORIGINS", "").split(",") if origin.strip()]
+for origin in (
+    FRONTEND_URL,
+    "https://matchly-orcin.vercel.app",
+    "http://localhost:5173",
+):
+    normalized = origin.strip().rstrip("/") if origin else ""
+    if normalized and normalized not in cors_origins:
+        cors_origins.append(normalized)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -881,24 +887,82 @@ def wow(dates):
 
 @app.get("/candidate/insights")
 def insights(u=Depends(role("candidate")), s=Depends(db)):
-    c = cand(u, s); have = {x.lower() for x in skill_names(CandidateSkill, CandidateSkill.candidate_id, c.id, s)}
+    c = cand(u, s)
+    have = {x.lower() for x in skill_names(CandidateSkill, CandidateSkill.candidate_id, c.id, s)}
+
+    # Load published jobs and their related skills/company names in batches.
+    # The previous implementation queried skills and company details once per job.
+    jobs = s.query(Job).filter_by(status="published").all()
+    job_ids = [j.id for j in jobs]
+    skills_by_job = {}
+    company_by_recruiter = {}
+
+    if job_ids:
+        for job_id, skill_name in (
+            s.query(JobSkill.job_id, Skill.name)
+            .join(Skill, Skill.id == JobSkill.skill_id)
+            .filter(JobSkill.job_id.in_(job_ids))
+            .all()
+        ):
+            skills_by_job.setdefault(job_id, []).append(skill_name)
+
+        recruiter_ids = {j.recruiter_id for j in jobs}
+        for recruiter_id, company_name in (
+            s.query(Recruiter.id, Company.name)
+            .join(Company, Company.id == Recruiter.company_id)
+            .filter(Recruiter.id.in_(recruiter_ids))
+            .all()
+        ):
+            company_by_recruiter[recruiter_id] = company_name
+
     rows, gaps = [], Counter()
-    for j in s.query(Job).filter_by(status="published"):
-        sc, m, ms = match(c, j, s, have)
-        if not sc: continue
-        rows.append({"job": jout(j, s), "score": sc, "matched": m, "missing": ms})
-        if sc >= 30: gaps.update(ms)
-    rows.sort(key=lambda r: -r["score"])
+    for j in jobs:
+        req = skills_by_job.get(j.id, [])
+        if not req:
+            continue
+        matched = [name for name in req if name.lower() in have]
+        missing = [name for name in req if name.lower() not in have]
+        score = round(100 * len(matched) / len(req))
+        job_data = {
+            "id": j.id,
+            "title": j.title,
+            "company": company_by_recruiter.get(j.recruiter_id, ""),
+            "location": j.location,
+            "min_exp": j.min_exp,
+            "max_exp": j.max_exp,
+            "job_type": j.job_type,
+            "salary": j.salary,
+            "status": j.status,
+            "created": j.created.isoformat() if j.created else None,
+            "skills": req,
+        }
+        rows.append({"job": job_data, "score": score, "matched": matched, "missing": missing})
+        if score >= 30:
+            gaps.update(missing)
+
+    rows.sort(key=lambda row: -row["score"])
     apps = s.query(Application).filter_by(candidate_id=c.id).all()
     checks = [("Phone", c.phone), ("Education", c.education), ("Experience", c.experience), ("Summary", c.summary), ("Skills", have)]
-    fields = [{"label": k, "done": bool(v.strip() if isinstance(v, str) else v)} for k, v in checks]
-    r = s.query(Resume).filter_by(candidate_id=c.id).order_by(Resume.id.desc()).first()
-    labels, data = day_series([a.applied for a in apps]); top = [x["score"] for x in rows[:6]]
-    return {"recommended": rows[:6], "gaps": [{"skill": k, "count": v} for k, v in gaps.most_common(5)], "fields": fields,
-            "resume": r and {"filename": r.filename, "status": r.status}, "trend": {"labels": labels, "data": data},
-            "stats": {"applications": len(apps), "applications_delta": wow([a.applied for a in apps]),
-                      "saved": s.query(SavedJob).filter_by(candidate_id=c.id).count(),
-                      "profile": round(100 * sum(f["done"] for f in fields) / 5), "avg_match": round(sum(top) / len(top)) if top else 0}}
+    fields = [{"label": key, "done": bool(value.strip() if isinstance(value, str) else value)} for key, value in checks]
+    resume = s.query(Resume).filter_by(candidate_id=c.id).order_by(Resume.id.desc()).first()
+    labels, data = day_series([a.applied for a in apps])
+    top = [row["score"] for row in rows[:6]]
+
+    return {
+        "recommended": rows[:6],
+        "gaps": [{"skill": key, "count": count} for key, count in gaps.most_common(5)],
+        "fields": fields,
+        "resume": resume and {"filename": resume.filename, "status": resume.status},
+        "trend": {"labels": labels, "data": data},
+        "stats": {
+            "applications": len(apps),
+            "applications_delta": wow([a.applied for a in apps]),
+            "saved": s.query(SavedJob).filter_by(candidate_id=c.id).count(),
+            "profile": round(100 * sum(field["done"] for field in fields) / 5),
+            "avg_match": round(sum(top) / len(top)) if top else 0,
+        },
+    }
+
 
 @app.post("/jobs/{jid}/save")
 def save_job(jid: int, u=Depends(role("candidate")), s=Depends(db)):
