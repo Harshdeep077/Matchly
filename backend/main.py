@@ -408,6 +408,26 @@ class QuestionUpdate(BaseModel):
     answer: str
 
 
+class QuestionGenerationRequest(BaseModel):
+    count: int = 50
+    difficulty: str = "mixed"
+
+
+class GeneratedQuestion(BaseModel):
+    tech: str
+    text: str
+    a: str
+    b: str
+    c: str
+    d: str
+    answer: str
+    explanation: str = ""
+
+
+class SaveGeneratedQuestionsRequest(BaseModel):
+    questions: List[GeneratedQuestion]
+
+
 @app.post("/jobs", status_code=201)
 def create_job(d: JobIn, u=Depends(role("recruiter")), s=Depends(db)):
     if d.status not in ("draft", "published"):
@@ -1604,6 +1624,123 @@ def read_question_upload(data: bytes, filename: str):
     except Exception as exc:
         raise HTTPException(422, f"Could not read the question file: {str(exc)[:160]}")
     return rows
+
+
+@app.post("/recruiter/jobs/{jid}/questions/generate")
+def generate_ai_job_questions(jid: int, data: QuestionGenerationRequest,
+                              u=Depends(role("recruiter")), s=Depends(db)):
+    job = s.get(Job, jid)
+    if not job or job.recruiter_id != rec(u, s).id:
+        raise HTTPException(404, "Job not found")
+    if data.count < 50 or data.count > 200:
+        raise HTTPException(422, "Choose between 50 and 200 questions so the job has a complete test bank.")
+    if data.difficulty not in ("easy", "medium", "hard", "mixed"):
+        raise HTTPException(422, "Difficulty must be easy, medium, hard, or mixed.")
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(503, "Gemini is not configured. Add GEMINI_API_KEY to the Render environment variables.")
+    skills = skill_names(JobSkill, JobSkill.job_id, job.id, s)
+    if not skills:
+        raise HTTPException(422, "Add required skills to this job before generating AI questions.")
+    try:
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=api_key)
+        schema = {
+            "type": "OBJECT",
+            "properties": {
+                "questions": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "tech": {"type": "STRING"},
+                            "text": {"type": "STRING"},
+                            "a": {"type": "STRING"},
+                            "b": {"type": "STRING"},
+                            "c": {"type": "STRING"},
+                            "d": {"type": "STRING"},
+                            "answer": {"type": "STRING", "enum": ["A", "B", "C", "D"]},
+                            "explanation": {"type": "STRING"}
+                        },
+                        "required": ["tech", "text", "a", "b", "c", "d", "answer", "explanation"]
+                    }
+                }
+            },
+            "required": ["questions"]
+        }
+        prompt = (
+            "Create original, technically accurate multiple-choice recruitment assessment questions. "
+            "Base them on the role, job description, and required skills below. "
+            "Each question must have exactly four plausible options and one unambiguously correct answer. "
+            "Avoid duplicates, trivia, trick wording, discriminatory content, and questions unrelated to the role. "
+            "Use realistic applied scenarios where appropriate. Keep explanations concise. "
+            f"Generate exactly {data.count} questions at {data.difficulty} difficulty. "
+            f"Role: {job.title}\nJob description: {(job.description or '')[:9000]}\n"
+            f"Required skills: {', '.join(skills)}"
+        )
+        response = client.models.generate_content(
+            model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=schema,
+                temperature=0.35,
+                max_output_tokens=min(30000, data.count * 260)
+            )
+        )
+        payload = json.loads(response.text or "{}")
+        raw_questions = payload.get("questions", [])
+        if len(raw_questions) != data.count:
+            raise ValueError(f"Gemini returned {len(raw_questions)} of {data.count} requested questions.")
+        cleaned = []
+        seen = set()
+        for item in raw_questions:
+            q = GeneratedQuestion(**item)
+            values = [q.tech.strip(), q.text.strip(), q.a.strip(), q.b.strip(), q.c.strip(), q.d.strip()]
+            answer = q.answer.strip().upper()
+            if not all(values) or answer not in ("A", "B", "C", "D"):
+                continue
+            key = re.sub(r"\W+", " ", q.text.lower()).strip()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append({
+                "tech": values[0][:60], "text": values[1],
+                "a": values[2], "b": values[3], "c": values[4], "d": values[5],
+                "answer": answer, "explanation": q.explanation.strip()
+            })
+        if len(cleaned) != data.count:
+            raise ValueError(f"Only {len(cleaned)} unique valid questions were returned. Please generate again.")
+        return {"questions": cleaned, "count": len(cleaned), "provider": "Gemini"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print("[Gemini question generation failed]", str(exc)[:500])
+        raise HTTPException(502, "Gemini could not generate the requested question set. Please try again or reduce the number of questions.")
+
+
+@app.post("/jobs/{jid}/questions/bulk")
+def save_generated_job_questions(jid: int, data: SaveGeneratedQuestionsRequest,
+                                 u=Depends(role("recruiter")), s=Depends(db)):
+    job = s.get(Job, jid)
+    if not job or job.recruiter_id != rec(u, s).id:
+        raise HTTPException(404, "Job not found")
+    if len(data.questions) < 50 or len(data.questions) > 200:
+        raise HTTPException(422, "Save between 50 and 200 questions.")
+    company_id = rec(u, s).company_id
+    added = 0
+    for item in data.questions:
+        answer = item.answer.strip().upper()
+        values = [item.tech.strip(), item.text.strip(), item.a.strip(), item.b.strip(), item.c.strip(), item.d.strip()]
+        if not all(values) or answer not in ("A", "B", "C", "D"):
+            raise HTTPException(422, "Every question must include a skill, question, four options, and a valid answer.")
+        s.add(Question(job_id=jid, company_id=company_id, tech=values[0][:60], text=values[1],
+                       a=values[2], b=values[3], c=values[4], d=values[5], answer=answer))
+        added += 1
+    s.commit()
+    total = s.query(Question).filter(Question.job_id == jid).count()
+    return {"added": added, "count": total, "required": 50, "ready": total >= 50}
 
 
 @app.get("/jobs/{jid}/questions")

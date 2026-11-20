@@ -436,6 +436,7 @@ const empty={title:"",description:"",location:"",min_exp:0,max_exp:2,job_type:"F
 function Recruiter() {
   const [newFile,setNewFile]=useState(null); const [manageId,setManageId]=useState(null); const [manageFile,setManageFile]=useState(null); const [busy,setBusy]=useState(false); const [jobs,setJ]=useState([]); const [ap,setAp]=useState([]); const [j,setF]=useState(empty); const [co,setCo]=useState();
   const [fs,setFs]=useState({skill:"",min_exp:"",auto:""}); const [n,ok,err]=useNote();
+  const [testModal,setTestModal]=useState(null); const [aiCount,setAiCount]=useState(50); const [aiDifficulty,setAiDifficulty]=useState("mixed"); const [aiQuestions,setAiQuestions]=useState([]); const [aiGenerating,setAiGenerating]=useState(false);
   const [recordings,setRecordings]=useState([]); const [recordingsBusy,setRecordingsBusy]=useState(false); const [meetingOpen,setMeetingOpen]=useState({}); const [meetingDrafts,setMeetingDrafts]=useState({}); const [meetingIds,setMeetingIds]=useState({});
   const loadRecordings=()=>{setRecordingsBusy(true);call("/recruiter/test-recordings").then(setRecordings).catch(err).finally(()=>setRecordingsBusy(false));};
   const load=()=>{ call("/recruiter/jobs").then(setJ).catch(err);
@@ -470,7 +471,11 @@ function Recruiter() {
   };
   const jst=(id,s)=>call(`/jobs/${id}/status`,{method:"PUT",body:{status:s}}).then(()=>load()).catch(err);
   const ast=(id,s)=>call(`/applications/${id}/status`,{method:"PUT",body:{status:s}}).then(()=>{ok("Status updated");if(s==="Selected")confetti();load();}).catch(err);
-  const sendTest=async id=>{setBusy(true);try{const r=await call(`/recruiter/applications/${id}/send-test`,{method:"POST"});ok(r.message);load();}catch(ex){err(ex);}finally{setBusy(false);}};
+  const sendExistingTest=async applicant=>{setBusy(true);try{const r=await call(`/recruiter/applications/${applicant.id}/send-test`,{method:"POST"});ok(r.message);setTestModal(null);load();}catch(ex){err(ex);}finally{setBusy(false);}};
+  const openTest=applicant=>{setAiQuestions([]);setAiCount(50);setAiDifficulty("mixed");setTestModal(applicant);};
+  const generateAiQuestions=async()=>{if(!testModal)return;setAiGenerating(true);try{const r=await call(`/recruiter/jobs/${testModal.job_id}/questions/generate`,{method:"POST",body:{count:Number(aiCount),difficulty:aiDifficulty},timeout:180000});setAiQuestions(r.questions||[]);ok(`Gemini generated ${r.count} questions. Review them before approval.`);}catch(ex){err(ex);}finally{setAiGenerating(false);}};
+  const approveAiAndSend=async()=>{if(!testModal||aiQuestions.length<50)return err("Generate and review at least 50 questions first.");setBusy(true);try{const saved=await call(`/jobs/${testModal.job_id}/questions/bulk`,{method:"POST",body:{questions:aiQuestions}});const sent=await call(`/recruiter/applications/${testModal.id}/send-test`,{method:"POST"});ok(`Saved ${saved.added} AI questions. ${sent.message}`);setTestModal(null);setAiQuestions([]);load();}catch(ex){err(ex);}finally{setBusy(false);}};
+
   const scheduleMeeting=async id=>{const d=meetingDrafts[id]||{};if(!d.when)return err("Choose a meeting date and time.");setBusy(true);try{const r=await call("/recruiter/video-assessment/actions",{method:"POST",body:{application_id:id,kind:"meeting",title:(d.title||"Interview meeting").trim(),meeting_at:new Date(d.when).toISOString()}});setMeetingIds(old=>({...old,[id]:r.id}));setMeetingOpen(old=>({...old,[id]:false}));ok("Meeting scheduled and candidate notified.");}catch(ex){err(ex);}finally{setBusy(false);}};
   const view=id=>fetch(`${API}/resume/${id}/file`,{headers:{Authorization:"Bearer "+localStorage.getItem("tok")}}).then(r=>r.ok?r.blob():Promise.reject(new Error("Could not open resume"))).then(b=>window.open(URL.createObjectURL(b))).catch(err);
   return <div className="wrap"><h2>Recruiter dashboard</h2><Note n={n}/>
@@ -520,7 +525,7 @@ function Recruiter() {
       {ap.map(a=><tr key={a.id}><td><b>{a.name}</b><div className="muted">{a.email}<br/>{a.experience||"Experience not provided"}</div></td><td>{a.job}</td><td><Badge s={a.score}/></td><td><TestScore t={a.test}/></td><td><Tags a={a.skills}/></td>
         <td><select aria-label="Status" value={a.status} onChange={e=>ast(a.id,e.target.value)} disabled={["Withdrawn","Auto-rejected"].includes(a.status)}>{["Applied","Under Review","Shortlisted","Interview","Selected","Rejected","Withdrawn","Auto-rejected"].map(s=><option key={s} disabled={s==="Withdrawn"||s==="Auto-rejected"}>{s}</option>)}</select></td>
         <td><div style={{display:"grid",gap:7,justifyItems:"start"}}>
-          {a.test?<span className="tag">{a.test.status==="completed"?`Completed ${a.test.score}/${a.test.total}`:a.test.status}</span>:<button className="ghost small" disabled={busy||["Withdrawn","Auto-rejected","Rejected"].includes(a.status)} onClick={()=>sendTest(a.id)}>Send test</button>}
+          {a.test?<span className="tag">{a.test.status==="completed"?`Completed ${a.test.score}/${a.test.total}`:a.test.status}</span>:<button className="ghost small" disabled={busy||["Withdrawn","Auto-rejected","Rejected"].includes(a.status)} onClick={()=>openTest(a)}>Send test</button>}
           {meetingIds[a.id]?<Link to={`/meeting/${meetingIds[a.id]}`}><button className="small">Join meeting</button></Link>:<button className="ghost small" disabled={["Withdrawn","Auto-rejected","Rejected"].includes(a.status)} onClick={()=>setMeetingOpen(old=>({...old,[a.id]:!old[a.id]}))}>{meetingOpen[a.id]?"Cancel":"Schedule meeting"}</button>}
           {meetingOpen[a.id]&&<div style={{minWidth:190,display:"grid",gap:6}}>
             <input aria-label="Meeting title" placeholder="Meeting title" value={meetingDrafts[a.id]?.title||""} onChange={e=>setMeetingDrafts(old=>({...old,[a.id]:{...old[a.id],title:e.target.value}}))}/>
@@ -528,7 +533,42 @@ function Recruiter() {
             <button className="small" disabled={busy||!meetingDrafts[a.id]?.when} onClick={()=>scheduleMeeting(a.id)}>Confirm meeting</button>
           </div>}
         </div></td>
-        <td><button className="ghost" onClick={()=>view(a.resume_id)}>Open</button></td></tr>)}</tbody></table></div>}</div>;
+        <td><button className="ghost" onClick={()=>view(a.resume_id)}>Open</button></td></tr>)}</tbody></table></div>}
+    {testModal&&<div role="dialog" aria-modal="true" aria-label="Send candidate test" onClick={e=>{if(e.target===e.currentTarget&&!aiGenerating&&!busy)setTestModal(null);}} style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(14,18,40,.58)",display:"grid",placeItems:"center",padding:16,overflowY:"auto"}}>
+      <section className="glass card" style={{width:"min(920px,100%)",maxHeight:"92vh",overflowY:"auto",background:"var(--panel, #f7f9ff)",color:"var(--text, #18233f)"}}>
+        <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}><div><h3 style={{margin:"0 0 4px"}}>Send assessment · {testModal.name}</h3><p className="muted" style={{margin:0}}>{testModal.job} · Choose how to prepare the question bank</p></div><button className="ghost small" disabled={aiGenerating||busy} onClick={()=>setTestModal(null)}>Close</button></div>
+        <div className="glass card" style={{marginTop:14}}>
+          <h4 style={{margin:"0 0 6px"}}>Option 1 · Existing question bank</h4>
+          <p className="muted">Use questions already uploaded for this job. Matchly requires at least 50 valid questions and selects 20 randomly for the candidate's test.</p>
+          <button className="ghost" disabled={busy||aiGenerating} onClick={()=>sendExistingTest(testModal)}>Use existing questions & send</button>
+        </div>
+        <div className="glass card" style={{marginTop:12}}>
+          <h4 style={{margin:"0 0 6px"}}>Option 2 · Generate with Gemini AI</h4>
+          <p className="muted">Gemini uses this job's title, description and required skills to create original MCQs. Review and edit the questions before saving and sending.</p>
+          <div className="row" style={{alignItems:"end",flexWrap:"wrap"}}>
+            <label style={{display:"grid",gap:5,flex:"1 1 150px"}}>Number of questions<input type="number" min="50" max="200" value={aiCount} onChange={e=>setAiCount(e.target.value)} disabled={aiGenerating||aiQuestions.length>0}/></label>
+            <label style={{display:"grid",gap:5,flex:"1 1 150px"}}>Difficulty<select value={aiDifficulty} onChange={e=>setAiDifficulty(e.target.value)} disabled={aiGenerating||aiQuestions.length>0}><option value="mixed">Mixed</option><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label>
+            <button disabled={aiGenerating||busy||Number(aiCount)<50||Number(aiCount)>200||!Number.isInteger(Number(aiCount))} onClick={generateAiQuestions}>{aiGenerating?"Generating with Gemini...":"Generate questions"}</button>
+          </div>
+          {aiQuestions.length>0&&<div style={{marginTop:14}}>
+            <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}><b>Preview · {aiQuestions.length} questions</b><button className="ghost small" disabled={busy} onClick={()=>setAiQuestions([])}>Discard & regenerate</button></div>
+            <p className="muted">Edit the question, choices and correct answer below. These questions are saved only when you approve.</p>
+            <div style={{display:"grid",gap:12}}>
+              {aiQuestions.map((q,i)=><article key={i} className="glass card" style={{padding:12}}>
+                <div className="row" style={{justifyContent:"space-between"}}><b>Question {i+1}</b><span className="tag">{q.tech}</span></div>
+                <textarea rows="2" aria-label={`Question ${i+1}`} value={q.text} onChange={e=>setAiQuestions(old=>old.map((x,k)=>k===i?{...x,text:e.target.value}:x))}/>
+                <div className="row" style={{flexWrap:"wrap"}}>
+                  {["a","b","c","d"].map((key,j)=><label key={key} style={{display:"grid",gap:4,flex:"1 1 40%"}}>Option {String.fromCharCode(65+j)}<input value={q[key]} onChange={e=>setAiQuestions(old=>old.map((x,k)=>k===i?{...x,[key]:e.target.value}:x))}/></label>)}
+                </div>
+                <div className="row" style={{alignItems:"center",flexWrap:"wrap"}}><label>Correct answer<select value={q.answer} onChange={e=>setAiQuestions(old=>old.map((x,k)=>k===i?{...x,answer:e.target.value}:x))}><option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option></select></label><span className="muted" style={{fontSize:".85rem"}}>{q.explanation}</span></div>
+              </article>)}
+            </div>
+            <div className="row" style={{justifyContent:"flex-end",marginTop:14}}><button disabled={busy||aiGenerating} onClick={approveAiAndSend}>{busy?"Saving & sending...":"Approve questions & send test"}</button></div>
+          </div>}
+        </div>
+      </section>
+    </div>}
+    </div>;
 }
 
 function Admin() {
