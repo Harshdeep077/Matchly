@@ -1701,7 +1701,7 @@ def generate_ai_job_questions(jid: int, data: QuestionGenerationRequest,
             answer = q.answer.strip().upper()
             if not all(values) or answer not in ("A", "B", "C", "D"):
                 continue
-            key = re.sub(r"\\W+", " ", q.text.lower()).strip()
+            key = re.sub(r"\W+", " ", q.text.lower()).strip()
             if key in seen:
                 continue
             seen.add(key)
