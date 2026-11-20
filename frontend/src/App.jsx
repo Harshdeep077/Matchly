@@ -3,19 +3,29 @@ import {BrowserRouter,Routes,Route,Link,NavLink,Navigate,useNavigate,useLocation
 import {AnimatePresence,motion,useReducedMotion} from "framer-motion";
 import {LiveKitRoom, VideoConference} from "@livekit/components-react";
 
-const API = import.meta.env.VITE_API || "http://localhost:8000";
+const API = (import.meta.env.VITE_API || (import.meta.env.DEV ? "http://localhost:8000" : "")).replace(/\/+$/, "");
+const API_TIMEOUT_MS = 30000;
 const Ctx = createContext(); const useAuth = () => useContext(Ctx);
 
-async function call(path,{method="GET",body,form}={}) {
+async function call(path,{method="GET",body,form,timeout=API_TIMEOUT_MS}={}) {
+  if (!API) throw new Error("Backend URL is not configured. Set VITE_API in the Vercel project environment variables.");
   const t = localStorage.getItem("tok"), h = {};
   if (t) h.Authorization = "Bearer " + t;
   if (body) h["Content-Type"] = "application/json";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
   let r;
-  try { r = await fetch(API+path,{method,headers:h,body:form||(body&&JSON.stringify(body))}); }
-  catch { throw new Error("Cannot reach the server. Check that the backend is running."); }
+  try {
+    r = await fetch(API+path,{method,headers:h,body:form||(body&&JSON.stringify(body)),signal:controller.signal});
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error("The server took too long to respond. Please try again.");
+    throw new Error("Cannot reach the Matchly server. Check your connection and try again.");
+  } finally {
+    clearTimeout(timer);
+  }
   if (r.status===401 && t) { localStorage.removeItem("tok");localStorage.removeItem("user"); location.href="/login"; }
   const d = await r.json().catch(()=>({}));
-  if (!r.ok) throw new Error(typeof d.detail==="string" ? d.detail : Array.isArray(d.detail) ? d.detail.map(x=>x.msg).join(", ") : "Something went wrong");
+  if (!r.ok) throw new Error(typeof d.detail==="string" ? d.detail : Array.isArray(d.detail) ? d.detail.map(x=>x.msg).join(", ") : `Request failed (${r.status}). Please try again.`);
   return d;
 }
 const useNote = () => { const [n,setN]=useState(); return [n, (m,t="ok")=>setN({m,t}), (e)=>setN({m:e.message,t:"err"})]; };
