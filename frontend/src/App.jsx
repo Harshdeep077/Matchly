@@ -84,7 +84,7 @@ function Reveal({children,delay=0,lazy}) {
 }
 function Sections({st}) {
   const steps=[["1","Upload your resume","We read it with OCR and pull out your skills."],["2","See your match","Every job shows a match percentage and the skills you are missing."],["3","Apply with confidence","Matches of 70% or more are shortlisted and get a skills test by email."]];
-  const roles=[["Job seekers","Scan your resume, see your match, and track every application."],["Recruiters","Ranked applicants, a drag and drop pipeline, and Excel export."],["Admins","Users, jobs and platform charts in one dashboard."]];
+  const roles=[["Job seekers","Scan your resume, see your match, and track every application."],["Recruiters","Ranked applicants, a drag-and-drop hiring board, and Excel export."],["Admins","Users, jobs and platform charts in one dashboard."]];
   return <div className="wrap sections">
     <Reveal><h2 className="center">How Matchly works</h2></Reveal>
     <div className="grid">{steps.map(([n,t,d],i)=><Reveal key={n} delay={i*120}><Tilt className="card"><span className="stepno">{n}</span><h3>{t}</h3><p className="muted">{d}</p></Tilt></Reveal>)}</div>
@@ -436,7 +436,7 @@ const empty={title:"",description:"",location:"",min_exp:0,max_exp:2,job_type:"F
 function Recruiter() {
   const [newFile,setNewFile]=useState(null); const [manageId,setManageId]=useState(null); const [manageFile,setManageFile]=useState(null); const [busy,setBusy]=useState(false); const [jobs,setJ]=useState([]); const [ap,setAp]=useState([]); const [j,setF]=useState(empty); const [co,setCo]=useState();
   const [fs,setFs]=useState({skill:"",min_exp:"",auto:""}); const [n,ok,err]=useNote();
-  const [recordings,setRecordings]=useState([]); const [recordingsBusy,setRecordingsBusy]=useState(false);
+  const [recordings,setRecordings]=useState([]); const [recordingsBusy,setRecordingsBusy]=useState(false); const [meetingOpen,setMeetingOpen]=useState({}); const [meetingDrafts,setMeetingDrafts]=useState({}); const [meetingIds,setMeetingIds]=useState({});
   const loadRecordings=()=>{setRecordingsBusy(true);call("/recruiter/test-recordings").then(setRecordings).catch(err).finally(()=>setRecordingsBusy(false));};
   const load=()=>{ call("/recruiter/jobs").then(setJ).catch(err);
     call("/recruiter/applicants?"+new URLSearchParams(Object.entries(fs).filter(([,v])=>v!=="")).toString()).then(setAp).catch(err); };
@@ -446,19 +446,14 @@ function Recruiter() {
   const post=async e=>{
     e.preventDefault(); setBusy(true);
     try {
-      const created=await call("/jobs",{method:"POST",body:{...j,status:"draft",min_exp:+j.min_exp,max_exp:+j.max_exp,skills:j.skills.split(",").map(x=>x.trim()).filter(Boolean)}});
+      const created=await call("/jobs",{method:"POST",body:{...j,status:j.status,min_exp:+j.min_exp,max_exp:+j.max_exp,skills:j.skills.split(",").map(x=>x.trim()).filter(Boolean)}});
       let count=0;
       if(newFile) {
         const fd=new FormData(); fd.append("f",newFile);
         const result=await call(`/jobs/${created.id}/questions/import`,{method:"POST",form:fd});
         count=result.count;
       }
-      if(j.status==="published" && count>=50) {
-        await call(`/jobs/${created.id}/status`,{method:"PUT",body:{status:"published"}});
-        ok(`Job published with ${count} questions.`);
-      } else if(j.status==="published") {
-        ok(`Job saved as draft. ${count}/50 questions uploaded. Add at least ${50-count} more to publish.`);
-      } else ok(`Draft saved with ${count} questions.`);
+      ok(j.status==="published"?"Job published successfully. You can invite applicants to a test or schedule a meeting later.": "Job saved as draft.");
       setF({...empty}); setNewFile(null); e.target.reset(); load();
     } catch(ex) { err(ex); load(); }
     finally {setBusy(false);}
@@ -475,6 +470,8 @@ function Recruiter() {
   };
   const jst=(id,s)=>call(`/jobs/${id}/status`,{method:"PUT",body:{status:s}}).then(()=>load()).catch(err);
   const ast=(id,s)=>call(`/applications/${id}/status`,{method:"PUT",body:{status:s}}).then(()=>{ok("Status updated");if(s==="Selected")confetti();load();}).catch(err);
+  const sendTest=async id=>{setBusy(true);try{const r=await call(`/recruiter/applications/${id}/send-test`,{method:"POST"});ok(r.message);load();}catch(ex){err(ex);}finally{setBusy(false);}};
+  const scheduleMeeting=async id=>{const d=meetingDrafts[id]||{};if(!d.when)return err("Choose a meeting date and time.");setBusy(true);try{const r=await call("/recruiter/video-assessment/actions",{method:"POST",body:{application_id:id,kind:"meeting",title:(d.title||"Interview meeting").trim(),meeting_at:new Date(d.when).toISOString()}});setMeetingIds(old=>({...old,[id]:r.id}));setMeetingOpen(old=>({...old,[id]:false}));ok("Meeting scheduled and candidate notified.");}catch(ex){err(ex);}finally{setBusy(false);}};
   const view=id=>fetch(`${API}/resume/${id}/file`,{headers:{Authorization:"Bearer "+localStorage.getItem("tok")}}).then(r=>r.ok?r.blob():Promise.reject(new Error("Could not open resume"))).then(b=>window.open(URL.createObjectURL(b))).catch(err);
   return <div className="wrap"><h2>Recruiter dashboard</h2><Note n={n}/>
     <section className="glass card" style={{margin:"14px 0"}}>
@@ -503,7 +500,7 @@ function Recruiter() {
         <select aria-label="Type" value={j.job_type} onChange={set("job_type")}>{["Full-time","Part-time","Contract","Internship"].map(t=><option key={t}>{t}</option>)}</select>
         <input aria-label="Salary" placeholder="Salary (optional)" value={j.salary} onChange={set("salary")}/></div>
       <input aria-label="Skills" required placeholder="Required skills, comma separated" style={{margin:"8px 0"}} value={j.skills} onChange={set("skills")}/>
-      <div style={{margin:"12px 0"}}><b>Job-specific MCQ questions</b><p className="muted">Upload a CSV or XLSX with columns: technology, question, option_a, option_b, option_c, option_d, answer. At least 50 valid questions are required to publish.</p>
+      <div style={{margin:"12px 0"}}><b>Assessment questions (optional)</b><p className="muted">You can publish a job without an assessment. To enable the skills test, upload a CSV or XLSX with columns: technology, question, option_a, option_b, option_c, option_d, answer. At least 50 valid questions are needed to generate test invitations.</p>
       <FileDropzone file={newFile} onFile={setNewFile} disabled={busy}/></div>
       <select aria-label="Status" value={j.status} onChange={set("status")} style={{marginBottom:8}}><option value="published">Publish now</option><option value="draft">Save as draft</option></select><br/><button disabled={busy}>{busy?"Saving...":"Save job"}</button></form>
     <h3>My jobs</h3>{!jobs.length?<div className="empty">No jobs yet. Post your first one above.</div>:jobs.map(x=><div key={x.id} className="glass card row" style={{alignItems:"center"}}>
@@ -519,9 +516,18 @@ function Recruiter() {
       </div>}</div>)}
     <h3>Applicants</h3><div className="glass card row"><input aria-label="Filter by skill" placeholder="Filter by skill" value={fs.skill} onChange={e=>setFs({...fs,skill:e.target.value})}/>
       <input aria-label="Min experience" type="number" min="0" placeholder="Min years" value={fs.min_exp} onChange={e=>setFs({...fs,min_exp:e.target.value})}/><button onClick={load}>Apply filters</button><button className="ghost" onClick={()=>exportXlsx(err)}>Export to Excel</button><button className="ghost" onClick={()=>setFs({...fs,auto:fs.auto?"":"1"})}>{fs.auto?"Show active applicants":"Show auto-rejected"}</button></div>
-    {!ap.length?<div className="empty">No applicants match yet.</div>:<div className="glass card" style={{overflowX:"auto"}}><table><thead><tr><th>Candidate</th><th>Job</th><th>Match</th><th>Test</th><th>Skills</th><th>Status</th><th>Resume</th></tr></thead><tbody>
+    {!ap.length?<div className="empty">No applicants match yet.</div>:<div className="glass card" style={{overflowX:"auto"}}><table><thead><tr><th>Candidate</th><th>Job</th><th>Match</th><th>Test</th><th>Skills</th><th>Status</th><th>Assessment</th><th>Resume</th></tr></thead><tbody>
       {ap.map(a=><tr key={a.id}><td><b>{a.name}</b><div className="muted">{a.email}<br/>{a.experience||"Experience not provided"}</div></td><td>{a.job}</td><td><Badge s={a.score}/></td><td><TestScore t={a.test}/></td><td><Tags a={a.skills}/></td>
         <td><select aria-label="Status" value={a.status} onChange={e=>ast(a.id,e.target.value)} disabled={["Withdrawn","Auto-rejected"].includes(a.status)}>{["Applied","Under Review","Shortlisted","Interview","Selected","Rejected","Withdrawn","Auto-rejected"].map(s=><option key={s} disabled={s==="Withdrawn"||s==="Auto-rejected"}>{s}</option>)}</select></td>
+        <td><div style={{display:"grid",gap:7,justifyItems:"start"}}>
+          {a.test?<span className="tag">{a.test.status==="completed"?`Completed ${a.test.score}/${a.test.total}`:a.test.status}</span>:<button className="ghost small" disabled={busy||["Withdrawn","Auto-rejected","Rejected"].includes(a.status)} onClick={()=>sendTest(a.id)}>Send test</button>}
+          {meetingIds[a.id]?<Link to={`/meeting/${meetingIds[a.id]}`}><button className="small">Join meeting</button></Link>:<button className="ghost small" disabled={["Withdrawn","Auto-rejected","Rejected"].includes(a.status)} onClick={()=>setMeetingOpen(old=>({...old,[a.id]:!old[a.id]}))}>{meetingOpen[a.id]?"Cancel":"Schedule meeting"}</button>}
+          {meetingOpen[a.id]&&<div style={{minWidth:190,display:"grid",gap:6}}>
+            <input aria-label="Meeting title" placeholder="Meeting title" value={meetingDrafts[a.id]?.title||""} onChange={e=>setMeetingDrafts(old=>({...old,[a.id]:{...old[a.id],title:e.target.value}}))}/>
+            <input aria-label="Meeting date and time" type="datetime-local" value={meetingDrafts[a.id]?.when||""} onChange={e=>setMeetingDrafts(old=>({...old,[a.id]:{...old[a.id],when:e.target.value}}))}/>
+            <button className="small" disabled={busy||!meetingDrafts[a.id]?.when} onClick={()=>scheduleMeeting(a.id)}>Confirm meeting</button>
+          </div>}
+        </div></td>
         <td><button className="ghost" onClick={()=>view(a.resume_id)}>Open</button></td></tr>)}</tbody></table></div>}</div>;
 }
 
@@ -604,7 +610,7 @@ const JobsKey = () => { const l=useLocation(); return <Jobs key={l.search}/>; };
 function Side() {
   const {user,logout}=useAuth(); const nav=useNavigate();
   const L={candidate:[["/dashboard","Dashboard","home"],["/jobs","Find jobs","search"],["/saved","Saved jobs","heart"],["/applications","Applications","file"],["/candidate/video-assessment","Video Assessment","file"],["/profile","My profile","user"],["/resume","Resume and edit","file"]],
-    recruiter:[["/recruiter/dashboard","Dashboard","home"],["/recruiter/questions","Question Studio","target"],["/recruiter/pipeline","Pipeline","board"],["/recruiter/video-assessment","Video Assessment","file"],["/recruiter","Jobs and applicants","brief"],["/jobs","Browse jobs","search"]],
+    recruiter:[["/recruiter/dashboard","Dashboard","home"],["/recruiter/questions","Question Studio","target"],["/recruiter/pipeline","Hiring Board","board"],["/recruiter/video-assessment","Video Assessment","file"],["/recruiter","Jobs and applicants","brief"],],
     admin:[["/admin","Dashboard","home"],["/questions","Question bank","file"],["/jobs","Browse jobs","search"]]}[user.role];
   return <aside className="glass side" aria-label="Main menu"><Link className="logo" to="/"><i className="mark"/>Matchly</Link>
     {L.map(([to,t,ic])=><NavLink key={to} to={to} end className={({isActive})=>isActive?"on":""}><Ico n={ic}/>{t}</NavLink>)}
@@ -719,7 +725,7 @@ function Pipeline() {
       ok(result.message);load();
     }catch(e){err(e);}
   };
-  return <div className="wrap"><div className="row" style={{alignItems:"center"}}><div><h2>Hiring pipeline</h2><p className="muted" style={{margin:0}}>Drag a candidate to a new column to change their status.</p></div><div style={{textAlign:"right"}}><button className="ghost" onClick={()=>exportXlsx(err)}>Export to Excel</button></div></div><Note n={n}/>
+  return <div className="wrap"><div className="row" style={{alignItems:"center"}}><div><h2>Hiring Board</h2><p className="muted" style={{margin:0}}>Drag a candidate to a new column to change their status.</p></div><div style={{textAlign:"right"}}><button className="ghost" onClick={()=>exportXlsx(err)}>Export to Excel</button></div></div><Note n={n}/>
     <section className="glass card" style={{marginTop:16}}>
       <div className="row" style={{alignItems:"center",justifyContent:"space-between"}}><div><h3 style={{margin:"0 0 5px"}}>Online exam review</h3><p className="muted" style={{margin:0}}>Three monitoring events stop an attempt and send it here for human review. Events are signals, not proof of misconduct.</p></div><button className="ghost small" onClick={load}>Refresh</button></div>
       {!reviews.length?<p className="muted">No attempts are currently awaiting review.</p>:reviews.map(r=><article key={r.test_id} className="glass card" style={{margin:"14px 0 0",background:"rgba(255,255,255,.55)"}}>

@@ -412,11 +412,9 @@ class QuestionUpdate(BaseModel):
 def create_job(d: JobIn, u=Depends(role("recruiter")), s=Depends(db)):
     if d.status not in ("draft", "published"):
         raise HTTPException(422, "Status must be draft or published")
-    if d.status == "published":
-        raise HTTPException(422, "Create the job as a draft, upload at least 50 valid job-specific questions, then publish it.")
     if d.max_exp < d.min_exp:
         raise HTTPException(422, "Max experience must be at least min experience")
-    j = Job(recruiter_id=rec(u, s).id, **d.dict(exclude={"skills", "status"}), status="draft")
+    j = Job(recruiter_id=rec(u, s).id, **d.dict(exclude={"skills", "status"}), status=d.status)
     s.add(j); s.flush()
     set_skills(JobSkill, JobSkill.job_id, j.id, d.skills, s)
     s.commit()
@@ -438,10 +436,8 @@ def job_status(jid: int, d: St, u=Depends(role("recruiter", "admin")), s=Depends
     if u.role == "recruiter" and j.recruiter_id != rec(u, s).id: raise HTTPException(403, "This is not your job posting")
     if d.status not in allowed: raise HTTPException(422, f"Status must be one of {allowed}")
     if u.role == "recruiter" and j.status == "disabled": raise HTTPException(403, "An admin disabled this job")
-    if d.status == "published":
-        count = s.query(Question).filter(Question.job_id == j.id).count()
-        if count < 50:
-            raise HTTPException(422, f"This job has {count}/50 valid questions. Upload at least {50 - count} more before publishing.")
+    # Assessment questions are optional. Jobs can be published without them;
+    # test invitations are created only when a job has at least 50 valid questions.
     j.status = d.status; s.commit(); return {"message": "Updated"}
 
 @app.get("/recruiter/jobs")
@@ -532,6 +528,34 @@ def applicants(skill: str = "", min_exp: float = 0, auto: int = 0, u=Depends(rol
                     "experience": c.experience, "skills": sk, "resume_id": a.resume_id, "status": a.status,
                     "score": match(c, j, s, {x.lower() for x in sk})[0], "job_id": j.id, "test": test_info(a, s)})
     return sorted(out, key=lambda x: -(x["score"] if x["score"] is not None else -1))
+
+
+@app.post("/recruiter/applications/{aid}/send-test")
+def recruiter_send_test(aid: int, u=Depends(role("recruiter")), s=Depends(db)):
+    recruiter = rec(u, s)
+    application = s.get(Application, aid)
+    job = application and s.get(Job, application.job_id)
+    if not application or not job or job.recruiter_id != recruiter.id:
+        raise HTTPException(404, "Application not found")
+    if application.status in ("Withdrawn", "Auto-rejected", "Rejected"):
+        raise HTTPException(409, "This applicant cannot be sent a test in their current status")
+    candidate = s.get(Candidate, application.candidate_id)
+    candidate_user = s.get(User, candidate.user_id)
+    existing = s.query(Test).filter_by(application_id=application.id).order_by(Test.id.desc()).first()
+    if existing and existing.status in ("pending", "in_progress", "completed", "flagged_for_review"):
+        raise HTTPException(409, "This applicant already has a test attempt")
+    fresh = create_test_attempt(application, candidate, job, s)
+    if not fresh:
+        count = s.query(Question).filter(Question.job_id == job.id).count()
+        raise HTTPException(422, f"This job has {count}/50 valid questions. Add at least {50-count} questions before sending a test.")
+    if application.status in ("Applied", "Under Review"):
+        application.status = "Shortlisted"
+    s.add(Notification(user_id=candidate_user.id,
+        message=f"The recruiter invited you to complete a {fresh.total}-question skills test for {job.title}. Check your Applications page."))
+    s.commit()
+    send_mail(candidate_user.email, f"Skills test invitation: {job.title}",
+        f"Hi {candidate_user.name},\n\nYou have been invited to complete a skills test for {job.title}.\n\nOpen your test: {FRONTEND_URL}/test/{fresh.token}\n\nYou have {TEST_MINUTES} minutes once you start. The link is valid for {LINK_DAYS} days.\n\nMatchly")
+    return {"message": f"Test invitation sent to {candidate_user.email}", "test_id": fresh.id, "token": fresh.token}
 
 
 # ---------- Cloudinary test session recordings (7-day retention) ----------
