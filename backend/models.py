@@ -263,3 +263,24 @@ class LiveInterviewRoom(Base):
     action_id = Column(ForeignKey("video_assessment_actions.id"), nullable=False, unique=True, index=True)
     room_name = Column(String(80), nullable=False, unique=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class SupportTicket(Base):
+    __tablename__ = "support_tickets"
+    id = Column(Integer, **PK)
+    user_id = Column(ForeignKey("users.id"), nullable=False, index=True)
+    subject = Column(String(180), nullable=False)
+    category = Column(String(60), default="General")
+    priority = Column(String(20), default="medium")
+    status = Column(String(30), default="open", index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class SupportTicketMessage(Base):
+    __tablename__ = "support_ticket_messages"
+    id = Column(Integer, **PK)
+    ticket_id = Column(ForeignKey("support_tickets.id"), nullable=False, index=True)
+    user_id = Column(ForeignKey("users.id"), nullable=False)
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
