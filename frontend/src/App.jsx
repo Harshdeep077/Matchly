@@ -535,7 +535,7 @@ function Admin() {
   const [s,setS]=useState(); const [t,setT]=useState(); const [hl,setHl]=useState();
   const [u,setU]=useState([]); const [j,setJ]=useState([]);
   const [candidates,setCandidates]=useState([]); const [companies,setCompanies]=useState([]);
-  const [applications,setApplications]=useState([]); const [resumes,setResumes]=useState([]);
+  const [applications,setApplications]=useState([]); const [resumes,setResumes]=useState([]); const [tickets,setTickets]=useState([]); const [ticketReply,setTicketReply]=useState({});
   const [tab,setTab]=useState("overview"); const [filter,setFilter]=useState("");
   const [n,ok,err]=useNote();
   const load=()=>{
@@ -543,7 +543,7 @@ function Admin() {
     call("/admin/health").then(setHl).catch(err); call("/admin/users").then(setU).catch(err);
     call("/admin/jobs").then(setJ).catch(err); call("/admin/candidates").then(setCandidates).catch(err);
     call("/admin/companies").then(setCompanies).catch(err); call("/admin/applications").then(setApplications).catch(err);
-    call("/admin/resumes").then(setResumes).catch(err);
+    call("/admin/resumes").then(setResumes).catch(err); call("/admin/support/tickets").then(setTickets).catch(err);
   };
   useEffect(()=>{load();},[]);
   const tog=x=>call(`/admin/users/${x.id}/active`,{method:"PUT",body:{active:!x.active}}).then(()=>{ok("Account updated");load();}).catch(err);
@@ -551,7 +551,7 @@ function Admin() {
   const openResume=id=>fetch(API+`/resume/${id}/file`,{headers:{Authorization:"Bearer "+localStorage.getItem("tok")}})
     .then(async r=>{if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||"Could not open resume");}return r.blob();})
     .then(b=>{const url=URL.createObjectURL(b);window.open(url,"_blank","noopener,noreferrer");}).catch(err);
-  const tabs=[["overview","Overview"],["seekers","Job seekers"],["companies","Companies & recruiters"],["jobs","Job listings"],["applications","Applications"],["resumes","Resume center"],["users","User accounts"]];
+  const tabs=[["overview","Overview"],["seekers","Job seekers"],["companies","Companies & recruiters"],["jobs","Job listings"],["applications","Applications"],["resumes","Resume center"],["users","User accounts"],["tickets","Support tickets"]];
   const shownApps=applications.filter(a=>!filter||a.status===filter);
   return <div className="wrap"><h2>Admin Control Center</h2><p className="muted">Platform-wide visibility across candidates, companies, recruiters, jobs, resumes and hiring activity.</p><Note n={n}/>
     <div className="glass card" style={{padding:10,marginBottom:18}}><div className="row" style={{gap:8,flexWrap:"wrap"}}>{tabs.map(([id,label])=><button key={id} className={tab===id?"small":"ghost small"} onClick={()=>setTab(id)}>{label}</button>)}</div></div>
@@ -567,6 +567,13 @@ function Admin() {
     {tab==="applications"&&<><h3>All applications ({applications.length})</h3><div className="row" style={{marginBottom:12}}><select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">All statuses</option>{["Applied","Under Review","Shortlisted","Interview","Selected","Rejected","Auto-rejected","Withdrawn"].map(v=><option key={v}>{v}</option>)}</select></div><div className="glass card" style={{overflowX:"auto"}}><table><thead><tr><th>Candidate</th><th>Job / Company</th><th>ATS match</th><th>Status</th><th>Test</th><th>Resume</th></tr></thead><tbody>{shownApps.map(a=><tr key={a.id}><td><b>{a.candidate.name}</b><div className="muted">{a.candidate.email}</div></td><td>{a.job.title}<div className="muted">{a.company}</div></td><td>{a.match_score==null?"—":a.match_score+"%"}</td><td><span className="tag">{a.status}</span></td><td>{a.test?(a.test.status==="completed"?`${a.test.score}/${a.test.total}`:a.test.status):"—"}</td><td>{a.resume_id&&<button className="ghost small" onClick={()=>openResume(a.resume_id)}>View</button>}</td></tr>)}</tbody></table></div></>}
     {tab==="resumes"&&<><h3>Resume Center ({resumes.length})</h3><div className="glass card" style={{overflowX:"auto"}}><table><thead><tr><th>Candidate</th><th>Resume</th><th>Status</th><th>Uploaded</th><th>Action</th></tr></thead><tbody>{resumes.map(r=><tr key={r.id}><td>{r.candidate_name}<div className="muted">{r.candidate_email}</div></td><td>{r.filename}</td><td>{r.status}</td><td>{r.uploaded?new Date(r.uploaded).toLocaleString():"—"}</td><td><button className="ghost small" onClick={()=>openResume(r.id)}>Open resume</button></td></tr>)}</tbody></table></div></>}
     {tab==="users"&&<><h3>User accounts ({u.length})</h3><div className="glass card" style={{overflowX:"auto"}}><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody>{u.map(x=><tr key={x.id}><td>{x.name}</td><td>{x.email}</td><td>{x.role}</td><td>{x.active?"Active":"Disabled"}</td><td>{x.role!=="admin"&&<button className={x.active?"danger small":"ghost small"} onClick={()=>tog(x)}>{x.active?"Disable":"Enable"}</button>}</td></tr>)}</tbody></table></div></>}
+     {tab==="tickets"&&<><h3>Support tickets ({tickets.length})</h3>{!tickets.length?<div className="glass card"><p className="muted">No support tickets yet.</p></div>:tickets.map(t=><div className="glass card" key={t.id} style={{marginBottom:12}}>
+       <div className="row" style={{justifyContent:"space-between",alignItems:"center",flexWrap:"wrap"}}><div><b>#{t.id} · {t.subject}</b><div className="muted">{t.user?.name} · {t.user?.email} · {t.user?.role} · {t.category}</div></div><span className="tag">{t.status}</span></div>
+       <div className="row" style={{gap:8,flexWrap:"wrap",margin:"10px 0"}}><label>Status <select value={t.status} onChange={async e=>{try{await call(`/admin/support/tickets/${t.id}`,{method:"PUT",body:{status:e.target.value}});call("/admin/support/tickets").then(setTickets);}catch(ex){err(ex);}}}><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select></label><label>Priority <select value={t.priority} onChange={async e=>{try{await call(`/admin/support/tickets/${t.id}`,{method:"PUT",body:{status:t.status,priority:e.target.value}});call("/admin/support/tickets").then(setTickets);}catch(ex){err(ex);}}}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label></div>
+       <div style={{display:"grid",gap:8,margin:"12px 0"}}>{t.messages.map(m=><div key={m.id} style={{padding:10,borderRadius:10,background:"var(--panel,rgba(120,120,140,.09))"}}><b>{m.author} ({m.author_role})</b><div style={{whiteSpace:"pre-wrap"}}>{m.message}</div><small className="muted">{m.created_at?new Date(m.created_at+"Z").toLocaleString():""}</small></div>)}</div>
+       <textarea rows="2" placeholder="Reply to user..." value={ticketReply[t.id]||""} onChange={e=>setTicketReply(v=>({...v,[t.id]:e.target.value}))}/>
+       <button className="small" disabled={!(ticketReply[t.id]||"").trim()} onClick={async()=>{try{await call(`/admin/support/tickets/${t.id}/reply`,{method:"POST",body:{message:ticketReply[t.id]}});setTicketReply(v=>({...v,[t.id]:""}));call("/admin/support/tickets").then(setTickets);ok("Reply sent");}catch(ex){err(ex);}}}>Send reply</button>
+     </div>)}</>}
   </div>;
 }
 
@@ -1330,6 +1337,37 @@ function TestPage() {
     <p><Link to="/applications">Back to applications</Link></p></div>}</div>;
 }
 
+
+function MatchlyAssistant() {
+  const {user}=useAuth();
+  const [open,setOpen]=useState(false), [messages,setMessages]=useState([{from:"bot",text:"Hi! I'm Matchly Assistant. I can help with jobs, applications, resumes, tests, interviews and account support."}]);
+  const [draft,setDraft]=useState(""), [busy,setBusy]=useState(false), [ticketMode,setTicketMode]=useState(false);
+  const [subject,setSubject]=useState(""), [category,setCategory]=useState("Technical issue"), [details,setDetails]=useState("");
+  const [tickets,setTickets]=useState([]);
+  const send=async value=>{
+    const message=(value??draft).trim(); if(!message||busy)return;
+    setMessages(v=>[...v,{from:"user",text:message}]);setDraft("");setBusy(true);
+    try{const r=await call("/support/chat",{method:"POST",body:{message}});setMessages(v=>[...v,{from:"bot",text:r.answer,suggest:r.suggest_ticket}]);}
+    catch(e){setMessages(v=>[...v,{from:"bot",text:e.message+" You can try again or raise a ticket after signing in."}]);}
+    finally{setBusy(false);}
+  };
+  const loadTickets=()=>call("/support/tickets").then(setTickets).catch(()=>{});
+  useEffect(()=>{if(open&&user&&(user.role==="candidate"||user.role==="recruiter"))loadTickets();},[open,user]);
+  const createTicket=async e=>{e.preventDefault();if(!subject.trim()||!details.trim())return;setBusy(true);try{const t=await call("/support/tickets",{method:"POST",body:{subject,category,priority:"medium",message:details}});setMessages(v=>[...v,{from:"bot",text:`Your support ticket #${t.id} has been created. The Matchly admin team can review and reply to it.`}]);setSubject("");setDetails("");setTicketMode(false);loadTickets();}catch(ex){setMessages(v=>[...v,{from:"bot",text:ex.message}]);}finally{setBusy(false);}};
+  return <div style={{position:"fixed",right:22,bottom:22,zIndex:9999,fontFamily:"inherit"}}>
+    {open&&<section className="glass card" style={{width:"min(370px,calc(100vw - 32px))",height:"min(590px,calc(100vh - 110px))",display:"flex",flexDirection:"column",gap:10,marginBottom:10,boxShadow:"0 18px 60px rgba(20,30,70,.24)",borderRadius:20,overflow:"hidden"}}>
+      <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}><div><b>Matchly Assistant</b><div className="muted" style={{fontSize:12}}>Website help · Rule-based support</div></div><button className="ghost small" onClick={()=>setOpen(false)}>Close</button></div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}><button className="ghost small" onClick={()=>setMessages([{from:"bot",text:"Chat cleared. What Matchly feature can I help you with?"}])}>Clear chat</button>{user&&(user.role==="candidate"||user.role==="recruiter")&&<button className="ghost small" onClick={()=>setTicketMode(!ticketMode)}>Raise a ticket</button>}</div>
+      {ticketMode?<form onSubmit={createTicket} style={{display:"grid",gap:8,overflowY:"auto"}}><b>New support ticket</b><input required maxLength="180" placeholder="Short subject" value={subject} onChange={e=>setSubject(e.target.value)}/><select value={category} onChange={e=>setCategory(e.target.value)}><option>Technical issue</option><option>Account and login</option><option>Jobs and applications</option><option>Assessment or interview</option><option>Other</option></select><textarea required maxLength="5000" rows="4" placeholder="Describe what happened..." value={details} onChange={e=>setDetails(e.target.value)}/><button disabled={busy||!subject.trim()||!details.trim()}>{busy?"Submitting...":"Submit ticket"}</button><button type="button" className="ghost" onClick={()=>setTicketMode(false)}>Back to chat</button></form>:
+      <><div style={{flex:1,minHeight:0,overflowY:"auto",display:"flex",flexDirection:"column",gap:9,padding:4}}>{messages.map((m,i)=><div key={i} style={{alignSelf:m.from==="user"?"flex-end":"flex-start",maxWidth:"88%",padding:10,borderRadius:13,background:m.from==="user"?"rgba(104,94,220,.16)":"rgba(120,150,180,.12)",whiteSpace:"pre-wrap",fontSize:13}}>{m.text}{m.suggest&&user&&(user.role==="candidate"||user.role==="recruiter")&&<div style={{marginTop:8}}><button className="ghost small" onClick={()=>setTicketMode(true)}>Raise a support ticket</button></div>}</div>)}{busy&&<span className="muted">Matchly Assistant is checking...</span>}</div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{["How do I apply?","Where is my application status?","How do I join an interview?"].map(q=><button key={q} className="ghost small" onClick={()=>send(q)}>{q}</button>)}</div>
+      <form onSubmit={e=>{e.preventDefault();send();}} style={{display:"flex",gap:6}}><input aria-label="Ask Matchly Assistant" placeholder="Ask about Matchly..." value={draft} onChange={e=>setDraft(e.target.value)}/><button disabled={busy||!draft.trim()}>Send</button></form>
+      {user&&(user.role==="candidate"||user.role==="recruiter")&&tickets.length>0&&<details><summary className="muted">My tickets ({tickets.length})</summary>{tickets.slice(0,5).map(t=><div key={t.id} className="muted" style={{fontSize:12,padding:5}}>#{t.id} · {t.subject} · {t.status}{t.messages?.length>1&&<div>Latest: {t.messages[t.messages.length-1].message}</div>}</div>)}</details>}</>}
+    </section>}
+    <button onClick={()=>setOpen(v=>!v)} aria-label="Open Matchly Assistant" style={{border:0,borderRadius:999,padding:"14px 18px",background:"linear-gradient(120deg,#13c8bd,#7962ed)",color:"#07152f",fontWeight:800,boxShadow:"0 8px 28px rgba(60,100,190,.3)",cursor:"pointer"}}>{open?"Close assistant":"✦ Matchly Help"}</button>
+  </div>;
+}
+
 function AnimatedRoutes() {
   const location = useLocation();
   const reduceMotion = useReducedMotion();
@@ -1369,5 +1407,5 @@ function AnimatedRoutes() {
 }
 
 export default function App() {
-  return <Provider><BrowserRouter><div className="aurora" aria-hidden="true"><i/><i/><i/></div><Nav/><Shell><AnimatedRoutes/></Shell></BrowserRouter></Provider>;
+  return <Provider><BrowserRouter><div className="aurora" aria-hidden="true"><i/><i/><i/></div><Nav/><Shell><AnimatedRoutes/></Shell><MatchlyAssistant/></BrowserRouter></Provider>;
 }
