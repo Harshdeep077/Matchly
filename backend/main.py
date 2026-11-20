@@ -412,11 +412,9 @@ class QuestionUpdate(BaseModel):
 def create_job(d: JobIn, u=Depends(role("recruiter")), s=Depends(db)):
     if d.status not in ("draft", "published"):
         raise HTTPException(422, "Status must be draft or published")
-    if d.status == "published":
-        raise HTTPException(422, "Create the job as a draft, upload at least 50 valid job-specific questions, then publish it.")
     if d.max_exp < d.min_exp:
         raise HTTPException(422, "Max experience must be at least min experience")
-    j = Job(recruiter_id=rec(u, s).id, **d.dict(exclude={"skills", "status"}), status="draft")
+    j = Job(recruiter_id=rec(u, s).id, **d.dict(exclude={"skills", "status"}), status=d.status)
     s.add(j); s.flush()
     set_skills(JobSkill, JobSkill.job_id, j.id, d.skills, s)
     s.commit()
@@ -438,10 +436,8 @@ def job_status(jid: int, d: St, u=Depends(role("recruiter", "admin")), s=Depends
     if u.role == "recruiter" and j.recruiter_id != rec(u, s).id: raise HTTPException(403, "This is not your job posting")
     if d.status not in allowed: raise HTTPException(422, f"Status must be one of {allowed}")
     if u.role == "recruiter" and j.status == "disabled": raise HTTPException(403, "An admin disabled this job")
-    if d.status == "published":
-        count = s.query(Question).filter(Question.job_id == j.id).count()
-        if count < 50:
-            raise HTTPException(422, f"This job has {count}/50 valid questions. Upload at least {50 - count} more before publishing.")
+    # Assessment questions are optional. Jobs can be published without them;
+    # test invitations are created only when a job has at least 50 valid questions.
     j.status = d.status; s.commit(); return {"message": "Updated"}
 
 @app.get("/recruiter/jobs")
