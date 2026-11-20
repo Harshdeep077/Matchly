@@ -14,4 +14,5 @@ easyocr
 cloudinary
 APScheduler
 livekit-api>=1.0.0
-python-dotenv\ngoogle-genai>=1.0.0\n
+python-dotenv
+google-genai>=1.0.0
