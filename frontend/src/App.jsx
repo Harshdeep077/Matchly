@@ -473,6 +473,7 @@ function Recruiter() {
   };
   const jst=(id,s)=>call(`/jobs/${id}/status`,{method:"PUT",body:{status:s}}).then(()=>load()).catch(err);
   const ast=(id,s)=>call(`/applications/${id}/status`,{method:"PUT",body:{status:s}}).then(()=>{ok("Status updated");if(s==="Selected")confetti();load();}).catch(err);
+  const sendTest=async id=>{setBusy(true);try{const r=await call(`/recruiter/applications/${id}/send-test`,{method:"POST"});ok(r.message);load();}catch(ex){err(ex);}finally{setBusy(false);}};
   const view=id=>fetch(`${API}/resume/${id}/file`,{headers:{Authorization:"Bearer "+localStorage.getItem("tok")}}).then(r=>r.ok?r.blob():Promise.reject(new Error("Could not open resume"))).then(b=>window.open(URL.createObjectURL(b))).catch(err);
   return <div className="wrap"><h2>Recruiter dashboard</h2><Note n={n}/>
     <section className="glass card" style={{margin:"14px 0"}}>
@@ -517,9 +518,10 @@ function Recruiter() {
       </div>}</div>)}
     <h3>Applicants</h3><div className="glass card row"><input aria-label="Filter by skill" placeholder="Filter by skill" value={fs.skill} onChange={e=>setFs({...fs,skill:e.target.value})}/>
       <input aria-label="Min experience" type="number" min="0" placeholder="Min years" value={fs.min_exp} onChange={e=>setFs({...fs,min_exp:e.target.value})}/><button onClick={load}>Apply filters</button><button className="ghost" onClick={()=>exportXlsx(err)}>Export to Excel</button><button className="ghost" onClick={()=>setFs({...fs,auto:fs.auto?"":"1"})}>{fs.auto?"Show active applicants":"Show auto-rejected"}</button></div>
-    {!ap.length?<div className="empty">No applicants match yet.</div>:<div className="glass card" style={{overflowX:"auto"}}><table><thead><tr><th>Candidate</th><th>Job</th><th>Match</th><th>Test</th><th>Skills</th><th>Status</th><th>Resume</th></tr></thead><tbody>
+    {!ap.length?<div className="empty">No applicants match yet.</div>:<div className="glass card" style={{overflowX:"auto"}}><table><thead><tr><th>Candidate</th><th>Job</th><th>Match</th><th>Test</th><th>Skills</th><th>Status</th><th>Assessment</th><th>Resume</th></tr></thead><tbody>
       {ap.map(a=><tr key={a.id}><td><b>{a.name}</b><div className="muted">{a.email}<br/>{a.experience||"Experience not provided"}</div></td><td>{a.job}</td><td><Badge s={a.score}/></td><td><TestScore t={a.test}/></td><td><Tags a={a.skills}/></td>
         <td><select aria-label="Status" value={a.status} onChange={e=>ast(a.id,e.target.value)} disabled={["Withdrawn","Auto-rejected"].includes(a.status)}>{["Applied","Under Review","Shortlisted","Interview","Selected","Rejected","Withdrawn","Auto-rejected"].map(s=><option key={s} disabled={s==="Withdrawn"||s==="Auto-rejected"}>{s}</option>)}</select></td>
+        <td>{a.test?<span className="tag">{a.test.status==="completed"?`Completed ${a.test.score}/${a.test.total}`:a.test.status}</span>:<button className="ghost small" disabled={busy||["Withdrawn","Auto-rejected","Rejected"].includes(a.status)} onClick={()=>sendTest(a.id)}>Send test</button>}</td>
         <td><button className="ghost" onClick={()=>view(a.resume_id)}>Open</button></td></tr>)}</tbody></table></div>}</div>;
 }
 
