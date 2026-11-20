@@ -175,6 +175,18 @@ class Test(Base):
     completed = Column(DateTime)
 
 
+class PasswordReset(Base):
+    """Short-lived password reset code; only the code hash is stored."""
+    __tablename__ = "password_resets"
+    id = Column(Integer, **PK)
+    email = Column(String(150), unique=True, nullable=False)
+    code_hash = Column(String(64), nullable=False)
+    attempts = Column(Integer, default=0)
+    expires = Column(DateTime, nullable=False)
+    last_sent = Column(DateTime, nullable=False)
+    created = Column(DateTime, default=datetime.utcnow)
+
+
 class PendingSignup(Base):
     """A sign-up waiting for its email code."""
     __tablename__ = "pending_signups"
