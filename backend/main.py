@@ -139,6 +139,14 @@ class Ver(BaseModel):
 class Resend(BaseModel):
     email: EmailStr
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class PasswordResetComplete(BaseModel):
+    email: EmailStr
+    code: str
+    password: str
+
 def otp_hash(email, code):
     return hmac.new(SECRET.encode(), f"{email}:{code}".encode(), hashlib.sha256).hexdigest()
 
@@ -215,6 +223,64 @@ def resend_code(d: Resend, s=Depends(db)):
     if wait > 0: raise HTTPException(429, f"Please wait {wait} seconds before asking for a new code")
     how = issue_code(p, s)
     return {"message": f"A new code was sent to {p.email}.", "delivery": how, "minutes": OTP_MINUTES}
+
+
+# ---------- password reset by email code ----------
+@app.post("/auth/forgot-password")
+def forgot_password(d: PasswordResetRequest, s=Depends(db)):
+    email = d.email.lower()
+    user = s.query(User).filter_by(email=email).first()
+    # Avoid revealing whether an email is registered.
+    if not user:
+        return {"message": "If an account exists for this email, a reset code has been sent."}
+    now = datetime.utcnow()
+    reset = s.query(PasswordReset).filter_by(email=email).first()
+    if reset and (now - reset.last_sent).total_seconds() < OTP_RESEND:
+        raise HTTPException(429, f"Please wait {OTP_RESEND - int((now - reset.last_sent).total_seconds())} seconds before requesting another code")
+    code = f"{secrets.randbelow(10**6):06d}"
+    try:
+        send_mail_strict(email, "Reset your Matchly password",
+            f"Hi {user.name},\n\nYour Matchly password reset code is: {code}\n\nIt is valid for 10 minutes. If you did not request this, you can ignore this email.\n\nMatchly")
+    except Exception as e:
+        print("[PASSWORD RESET EMAIL failed]", e)
+        raise HTTPException(502, "We could not send the reset code. Please try again later.")
+    if not reset:
+        reset = PasswordReset(email=email, code_hash="", attempts=0, expires=now, last_sent=now)
+        s.add(reset)
+    reset.code_hash = otp_hash(email, code)
+    reset.attempts = 0
+    reset.expires = now + timedelta(minutes=10)
+    reset.last_sent = now
+    s.commit()
+    return {"message": "If an account exists for this email, a reset code has been sent.", "minutes": 10}
+
+@app.post("/auth/reset-password")
+def reset_password(d: PasswordResetComplete, s=Depends(db)):
+    email = d.email.lower()
+    if len(d.password) < 8:
+        raise HTTPException(422, "Password must be at least 8 characters")
+    reset = s.query(PasswordReset).filter_by(email=email).first()
+    if not reset:
+        raise HTTPException(400, "Request a new password reset code.")
+    if datetime.utcnow() > reset.expires:
+        s.delete(reset); s.commit()
+        raise HTTPException(410, "This reset code has expired. Request a new one.")
+    if reset.attempts >= OTP_TRIES:
+        s.delete(reset); s.commit()
+        raise HTTPException(429, "Too many wrong codes. Request a new one.")
+    if not hmac.compare_digest(reset.code_hash, otp_hash(email, d.code.strip())):
+        reset.attempts += 1
+        remaining = OTP_TRIES - reset.attempts
+        s.commit()
+        raise HTTPException(400, f"Incorrect code. {remaining} attempt{'s' if remaining != 1 else ''} left.")
+    user = s.query(User).filter_by(email=email).first()
+    if not user:
+        s.delete(reset); s.commit()
+        raise HTTPException(404, "Account not found.")
+    user.password_hash = hp(d.password)
+    s.delete(reset)
+    s.commit()
+    return {"message": "Password updated successfully. You can now log in."}
 
 @app.post("/auth/login")
 def login(d: Login, s=Depends(db)):
