@@ -453,12 +453,10 @@ function Recruiter() {
         const result=await call(`/jobs/${created.id}/questions/import`,{method:"POST",form:fd});
         count=result.count;
       }
-      if(j.status==="published" && count>=50) {
+      if(j.status==="published") {
         await call(`/jobs/${created.id}/status`,{method:"PUT",body:{status:"published"}});
-        ok(`Job published with ${count} questions.`);
-      } else if(j.status==="published") {
-        ok(`Job saved as draft. ${count}/50 questions uploaded. Add at least ${50-count} more to publish.`);
-      } else ok(`Draft saved with ${count} questions.`);
+        ok(count>=50?`Job published with assessment enabled (${count} questions).`:`Job published${count?` with ${count} assessment questions`:" without an assessment"}. Add at least ${Math.max(0,50-count)} more valid questions later to enable skills tests.`);
+      } else ok(`Draft saved${count?` with ${count} assessment questions`:""}.`);
       setF({...empty}); setNewFile(null); e.target.reset(); load();
     } catch(ex) { err(ex); load(); }
     finally {setBusy(false);}
@@ -503,7 +501,7 @@ function Recruiter() {
         <select aria-label="Type" value={j.job_type} onChange={set("job_type")}>{["Full-time","Part-time","Contract","Internship"].map(t=><option key={t}>{t}</option>)}</select>
         <input aria-label="Salary" placeholder="Salary (optional)" value={j.salary} onChange={set("salary")}/></div>
       <input aria-label="Skills" required placeholder="Required skills, comma separated" style={{margin:"8px 0"}} value={j.skills} onChange={set("skills")}/>
-      <div style={{margin:"12px 0"}}><b>Job-specific MCQ questions</b><p className="muted">Upload a CSV or XLSX with columns: technology, question, option_a, option_b, option_c, option_d, answer. At least 50 valid questions are required to publish.</p>
+      <div style={{margin:"12px 0"}}><b>Assessment questions (optional)</b><p className="muted">You can publish a job without an assessment. To enable the skills test, upload a CSV or XLSX with columns: technology, question, option_a, option_b, option_c, option_d, answer. At least 50 valid questions are needed to generate test invitations.</p>
       <FileDropzone file={newFile} onFile={setNewFile} disabled={busy}/></div>
       <select aria-label="Status" value={j.status} onChange={set("status")} style={{marginBottom:8}}><option value="published">Publish now</option><option value="draft">Save as draft</option></select><br/><button disabled={busy}>{busy?"Saving...":"Save job"}</button></form>
     <h3>My jobs</h3>{!jobs.length?<div className="empty">No jobs yet. Post your first one above.</div>:jobs.map(x=><div key={x.id} className="glass card row" style={{alignItems:"center"}}>
@@ -604,7 +602,7 @@ const JobsKey = () => { const l=useLocation(); return <Jobs key={l.search}/>; };
 function Side() {
   const {user,logout}=useAuth(); const nav=useNavigate();
   const L={candidate:[["/dashboard","Dashboard","home"],["/jobs","Find jobs","search"],["/saved","Saved jobs","heart"],["/applications","Applications","file"],["/candidate/video-assessment","Video Assessment","file"],["/profile","My profile","user"],["/resume","Resume and edit","file"]],
-    recruiter:[["/recruiter/dashboard","Dashboard","home"],["/recruiter/questions","Question Studio","target"],["/recruiter/pipeline","Pipeline","board"],["/recruiter/video-assessment","Video Assessment","file"],["/recruiter","Jobs and applicants","brief"],["/jobs","Browse jobs","search"]],
+    recruiter:[["/recruiter/dashboard","Dashboard","home"],["/recruiter/questions","Question Studio","target"],["/recruiter/pipeline","Hiring Board","board"],["/recruiter/video-assessment","Video Assessment","file"],["/recruiter","Jobs and applicants","brief"],["/jobs","Browse jobs","search"]],
     admin:[["/admin","Dashboard","home"],["/questions","Question bank","file"],["/jobs","Browse jobs","search"]]}[user.role];
   return <aside className="glass side" aria-label="Main menu"><Link className="logo" to="/"><i className="mark"/>Matchly</Link>
     {L.map(([to,t,ic])=><NavLink key={to} to={to} end className={({isActive})=>isActive?"on":""}><Ico n={ic}/>{t}</NavLink>)}
@@ -719,7 +717,7 @@ function Pipeline() {
       ok(result.message);load();
     }catch(e){err(e);}
   };
-  return <div className="wrap"><div className="row" style={{alignItems:"center"}}><div><h2>Hiring pipeline</h2><p className="muted" style={{margin:0}}>Drag a candidate to a new column to change their status.</p></div><div style={{textAlign:"right"}}><button className="ghost" onClick={()=>exportXlsx(err)}>Export to Excel</button></div></div><Note n={n}/>
+  return <div className="wrap"><div className="row" style={{alignItems:"center"}}><div><h2>Hiring Board</h2><p className="muted" style={{margin:0}}>Drag a candidate to a new column to change their status.</p></div><div style={{textAlign:"right"}}><button className="ghost" onClick={()=>exportXlsx(err)}>Export to Excel</button></div></div><Note n={n}/>
     <section className="glass card" style={{marginTop:16}}>
       <div className="row" style={{alignItems:"center",justifyContent:"space-between"}}><div><h3 style={{margin:"0 0 5px"}}>Online exam review</h3><p className="muted" style={{margin:0}}>Three monitoring events stop an attempt and send it here for human review. Events are signals, not proof of misconduct.</p></div><button className="ghost small" onClick={load}>Refresh</button></div>
       {!reviews.length?<p className="muted">No attempts are currently awaiting review.</p>:reviews.map(r=><article key={r.test_id} className="glass card" style={{margin:"14px 0 0",background:"rgba(255,255,255,.55)"}}>
