@@ -1,0 +1,55 @@
+/* Matchly simple mode: preserve the current colour system and layout,
+   but remove decorative motion and expensive full-screen visual effects. */
+#root > .ambient-bg,
+.ambient-bg,
+.aurora,
+.floaters,
+.nx-ribbons,
+.nx-floor,
+.nx-fl,
+.nx-sphere,
+.nx-ringwrap,
+.nx-cubewrap,
+.confetti {
+  display: none !important;
+}
+
+body,
+#root {
+  background: var(--bg) !important;
+}
+
+*, *::before, *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+  caret-color: auto;
+}
+
+.tilt,
+.lift,
+.fl,
+.orb,
+.ring,
+.nx-band,
+.nx-line,
+.nx-ring,
+.nx-cube {
+  transform: none !important;
+  translate: none !important;
+  rotate: none !important;
+  filter: none !important;
+  will-change: auto !important;
+}
+
+.glass,
+.card,
+nav {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: var(--shadow) !important;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html:focus-within { scroll-behavior: auto; }
+}
