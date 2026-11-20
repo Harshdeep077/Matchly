@@ -530,6 +530,34 @@ def applicants(skill: str = "", min_exp: float = 0, auto: int = 0, u=Depends(rol
     return sorted(out, key=lambda x: -(x["score"] if x["score"] is not None else -1))
 
 
+@app.post("/recruiter/applications/{aid}/send-test")
+def recruiter_send_test(aid: int, u=Depends(role("recruiter")), s=Depends(db)):
+    recruiter = rec(u, s)
+    application = s.get(Application, aid)
+    job = application and s.get(Job, application.job_id)
+    if not application or not job or job.recruiter_id != recruiter.id:
+        raise HTTPException(404, "Application not found")
+    if application.status in ("Withdrawn", "Auto-rejected", "Rejected"):
+        raise HTTPException(409, "This applicant cannot be sent a test in their current status")
+    candidate = s.get(Candidate, application.candidate_id)
+    candidate_user = s.get(User, candidate.user_id)
+    existing = s.query(Test).filter_by(application_id=application.id).order_by(Test.id.desc()).first()
+    if existing and existing.status in ("pending", "in_progress", "completed", "flagged_for_review"):
+        raise HTTPException(409, "This applicant already has a test attempt")
+    fresh = create_test_attempt(application, candidate, job, s)
+    if not fresh:
+        count = s.query(Question).filter(Question.job_id == job.id).count()
+        raise HTTPException(422, f"This job has {count}/50 valid questions. Add at least {50-count} questions before sending a test.")
+    if application.status in ("Applied", "Under Review"):
+        application.status = "Shortlisted"
+    s.add(Notification(user_id=candidate_user.id,
+        message=f"The recruiter invited you to complete a {fresh.total}-question skills test for {job.title}. Check your Applications page."))
+    s.commit()
+    send_mail(candidate_user.email, f"Skills test invitation: {job.title}",
+        f"Hi {candidate_user.name},\n\nYou have been invited to complete a skills test for {job.title}.\n\nOpen your test: {FRONTEND_URL}/test/{fresh.token}\n\nYou have {TEST_MINUTES} minutes once you start. The link is valid for {LINK_DAYS} days.\n\nMatchly")
+    return {"message": f"Test invitation sent to {candidate_user.email}", "test_id": fresh.id, "token": fresh.token}
+
+
 # ---------- Cloudinary test session recordings (7-day retention) ----------
 def cloudinary_client():
     import cloudinary
