@@ -610,7 +610,7 @@ const JobsKey = () => { const l=useLocation(); return <Jobs key={l.search}/>; };
 function Side() {
   const {user,logout}=useAuth(); const nav=useNavigate();
   const L={candidate:[["/dashboard","Dashboard","home"],["/jobs","Find jobs","search"],["/saved","Saved jobs","heart"],["/applications","Applications","file"],["/candidate/video-assessment","Video Assessment","file"],["/profile","My profile","user"],["/resume","Resume and edit","file"]],
-    recruiter:[["/recruiter/dashboard","Dashboard","home"],["/recruiter/questions","Question Studio","target"],["/recruiter/pipeline","Hiring Board","board"],["/recruiter/video-assessment","Video Assessment","file"],["/recruiter","Jobs and applicants","brief"],["/jobs","Browse jobs","search"]],
+    recruiter:[["/recruiter/dashboard","Dashboard","home"],["/recruiter/questions","Question Studio","target"],["/recruiter/pipeline","Hiring Board","board"],["/recruiter/video-assessment","Video Assessment","file"],["/recruiter","Jobs and applicants","brief"],],
     admin:[["/admin","Dashboard","home"],["/questions","Question bank","file"],["/jobs","Browse jobs","search"]]}[user.role];
   return <aside className="glass side" aria-label="Main menu"><Link className="logo" to="/"><i className="mark"/>Matchly</Link>
     {L.map(([to,t,ic])=><NavLink key={to} to={to} end className={({isActive})=>isActive?"on":""}><Ico n={ic}/>{t}</NavLink>)}
