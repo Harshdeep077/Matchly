@@ -1,0 +1,196 @@
+[
+  {
+    "intent": "greeting",
+    "keywords": [
+      "hello",
+      "hi",
+      "hey",
+      "good morning",
+      "good evening"
+    ],
+    "answer": "Hi! I'm Matchly Assistant. I can help with jobs, applications, resumes, assessments, interviews, recruiter tools and account support."
+  },
+  {
+    "intent": "find_jobs",
+    "keywords": [
+      "find jobs",
+      "browse jobs",
+      "search jobs",
+      "job listing",
+      "available jobs"
+    ],
+    "answer": "Open Find Jobs from the candidate navigation. You can search published vacancies, review required skills and apply to a role that matches your profile."
+  },
+  {
+    "intent": "apply_job",
+    "keywords": [
+      "apply",
+      "application",
+      "how to apply",
+      "apply for job"
+    ],
+    "answer": "Open a job listing, review its details and select Apply Now. You can check your application and its status from the Applications page."
+  },
+  {
+    "intent": "application_status",
+    "keywords": [
+      "application status",
+      "my application",
+      "shortlisted",
+      "rejected",
+      "under review",
+      "track application"
+    ],
+    "answer": "Open Applications in your candidate dashboard to see each application's current status. Recruiter updates also appear in your notifications."
+  },
+  {
+    "intent": "resume_upload",
+    "keywords": [
+      "upload resume",
+      "resume upload",
+      "cv upload",
+      "update resume",
+      "edit resume"
+    ],
+    "answer": "Open Resume and Edit from your candidate dashboard. Upload your resume and review the extracted profile details before saving."
+  },
+  {
+    "intent": "ats_match",
+    "keywords": [
+      "match score",
+      "ats",
+      "matching score",
+      "70 percent",
+      "match percentage"
+    ],
+    "answer": "Matchly compares your profile skills with a job's required skills. A match of 70% or more meets the current ATS shortlist threshold; the recruiter controls the next steps where a test is not configured."
+  },
+  {
+    "intent": "candidate_test",
+    "keywords": [
+      "test",
+      "assessment",
+      "exam",
+      "mcq",
+      "test link",
+      "start test"
+    ],
+    "answer": "Open the test invitation from Applications or use the test link sent to your registered email. Read the instructions, allow the required camera permission and complete the test before its expiry."
+  },
+  {
+    "intent": "test_issue",
+    "keywords": [
+      "test not working",
+      "test not opening",
+      "camera issue",
+      "test error",
+      "assessment problem"
+    ],
+    "answer": "Try a current version of Chrome, allow camera access, close other apps using the camera and reopen the test link. If it still fails, raise a Technical Issue ticket here."
+  },
+  {
+    "intent": "interview_meeting",
+    "keywords": [
+      "meeting",
+      "interview",
+      "join meeting",
+      "video interview",
+      "live interview"
+    ],
+    "answer": "Scheduled recruiter meetings appear under Video Assessment in your candidate dashboard. Open the meeting card at the scheduled time and select Join Live Interview."
+  },
+  {
+    "intent": "recruiter_post_job",
+    "keywords": [
+      "post job",
+      "create job",
+      "publish job",
+      "job posting"
+    ],
+    "answer": "Recruiters can create a vacancy from Jobs and Applicants. Add the role details and required skills, then publish. An assessment question bank is optional and can be added later."
+  },
+  {
+    "intent": "recruiter_applicants",
+    "keywords": [
+      "applicants",
+      "candidate list",
+      "review applicants",
+      "hiring board",
+      "pipeline"
+    ],
+    "answer": "Open Hiring Board or Jobs and Applicants to review candidates, compare match scores, update application statuses, send tests and schedule interviews."
+  },
+  {
+    "intent": "recruiter_questions",
+    "keywords": [
+      "question bank",
+      "add questions",
+      "upload questions",
+      "send test",
+      "generate questions"
+    ],
+    "answer": "Recruiters can manage job-specific questions in Question Studio. Add MCQs manually or upload a supported CSV/XLSX file. Matchly can also suggest curated skill-based questions for recruiter review before approval."
+  },
+  {
+    "intent": "recruiter_meeting",
+    "keywords": [
+      "schedule meeting",
+      "schedule interview",
+      "invite candidate",
+      "meeting candidate"
+    ],
+    "answer": "Open Jobs and Applicants, find the candidate and select Schedule Meeting. Choose a title and date/time, then confirm. The candidate receives an in-app notification."
+  },
+  {
+    "intent": "notifications",
+    "keywords": [
+      "notification",
+      "notifications",
+      "alert",
+      "updates"
+    ],
+    "answer": "Check the notification area in your dashboard for application updates, assessment invitations and meeting notifications."
+  },
+  {
+    "intent": "account_login",
+    "keywords": [
+      "login",
+      "log in",
+      "sign in",
+      "cannot login",
+      "password"
+    ],
+    "answer": "Use the email address and password registered with Matchly. If you cannot access your account, use Forgot Password on the login screen."
+  },
+  {
+    "intent": "forgot_password",
+    "keywords": [
+      "forgot password",
+      "reset password",
+      "change password"
+    ],
+    "answer": "On the login screen, select Forgot Password, enter your registered email and follow the verification instructions to set a new password."
+  },
+  {
+    "intent": "contact_support",
+    "keywords": [
+      "support",
+      "help",
+      "ticket",
+      "contact admin",
+      "raise ticket",
+      "complaint"
+    ],
+    "answer": "I can help create a support ticket. Sign in as a candidate or recruiter, then choose Raise a ticket in this chat. The Matchly admin team can review and reply."
+  },
+  {
+    "intent": "goodbye",
+    "keywords": [
+      "bye",
+      "goodbye",
+      "thanks",
+      "thank you"
+    ],
+    "answer": "You're welcome! If you need help with Matchly again, just open this assistant."
+  }
+]
