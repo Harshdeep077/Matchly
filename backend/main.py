@@ -840,6 +840,133 @@ def delete_test_recording(recording_id: int, u=Depends(role("recruiter")), s=Dep
         raise HTTPException(502, "Could not delete the recording; please retry")
 
 
+
+# ---------- Matchly support assistant and tickets ----------
+class ChatMessageIn(BaseModel):
+    message: str
+
+class TicketCreateIn(BaseModel):
+    subject: str
+    category: str = "General"
+    priority: str = "medium"
+    message: str
+
+class TicketReplyIn(BaseModel):
+    message: str
+
+class TicketUpdateIn(BaseModel):
+    status: str
+    priority: Optional[str] = None
+
+
+def matchly_kb():
+    import json
+    path = os.path.join(os.path.dirname(__file__), "chatbot_kb.json")
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+@app.post("/support/chat")
+def support_chat(d: ChatMessageIn):
+    text = re.sub(r"\\s+", " ", d.message.strip().lower())
+    if not text:
+        raise HTTPException(422, "Please enter a message")
+    if len(text) > 600:
+        raise HTTPException(422, "Message is too long")
+    tokens = set(re.findall(r"[a-z0-9]+", text))
+    best, best_score = None, 0
+    for item in matchly_kb():
+        score = 0
+        for phrase in item.get("keywords", []):
+            p = phrase.lower().strip()
+            if p and p in text:
+                score = max(score, 2 + len(p.split()))
+            elif p and set(re.findall(r"[a-z0-9]+", p)) and set(re.findall(r"[a-z0-9]+", p)).issubset(tokens):
+                score = max(score, 1 + len(p.split()))
+        if score > best_score:
+            best, best_score = item, score
+    if best and best_score >= 2:
+        return {"answer": best["answer"], "intent": best["intent"], "matched": True,
+                "suggest_ticket": best["intent"] in ("test_issue", "contact_support")}
+    return {"answer": "I can only help with Matchly features, such as job search, applications, resumes, assessments, interviews and account support. I couldn't confidently match that question to the Matchly help guide. If you're having a website issue, you can raise a support ticket here.",
+            "intent": "fallback", "matched": False, "suggest_ticket": True}
+
+
+def ticket_payload(ticket, s, include_messages=True):
+    owner = s.get(User, ticket.user_id)
+    messages = s.query(SupportTicketMessage).filter_by(ticket_id=ticket.id).order_by(SupportTicketMessage.id.asc()).all() if include_messages else []
+    return {
+        "id": ticket.id, "subject": ticket.subject, "category": ticket.category,
+        "priority": ticket.priority, "status": ticket.status,
+        "created_at": ticket.created_at.isoformat() if ticket.created_at else None,
+        "updated_at": ticket.updated_at.isoformat() if ticket.updated_at else None,
+        "user": {"id": owner.id, "name": owner.name, "email": owner.email, "role": owner.role} if owner else None,
+        "messages": [{"id": m.id, "message": m.message, "created_at": m.created_at.isoformat() if m.created_at else None,
+                      "author": (s.get(User, m.user_id).name if s.get(User, m.user_id) else "User"),
+                      "author_role": (s.get(User, m.user_id).role if s.get(User, m.user_id) else "")} for m in messages]
+    }
+
+
+@app.post("/support/tickets", status_code=201)
+def create_support_ticket(d: TicketCreateIn, u=Depends(role("candidate", "recruiter")), s=Depends(db)):
+    subject, message = d.subject.strip(), d.message.strip()
+    if not subject or not message:
+        raise HTTPException(422, "Subject and message are required")
+    if len(subject) > 180 or len(message) > 5000:
+        raise HTTPException(422, "Subject or message is too long")
+    if d.priority not in ("low", "medium", "high"):
+        raise HTTPException(422, "Priority must be low, medium or high")
+    ticket = SupportTicket(user_id=u.id, subject=subject, category=d.category[:60],
+                           priority=d.priority, status="open")
+    s.add(ticket); s.flush()
+    s.add(SupportTicketMessage(ticket_id=ticket.id, user_id=u.id, message=message))
+    s.commit(); s.refresh(ticket)
+    return ticket_payload(ticket, s)
+
+
+@app.get("/support/tickets")
+def my_support_tickets(u=Depends(role("candidate", "recruiter")), s=Depends(db)):
+    rows = s.query(SupportTicket).filter_by(user_id=u.id).order_by(SupportTicket.updated_at.desc()).all()
+    return [ticket_payload(x, s) for x in rows]
+
+
+@app.get("/admin/support/tickets")
+def admin_support_tickets(status: str = "", u=Depends(role("admin")), s=Depends(db)):
+    q = s.query(SupportTicket).order_by(SupportTicket.updated_at.desc())
+    if status in ("open", "in_progress", "resolved", "closed"):
+        q = q.filter(SupportTicket.status == status)
+    return [ticket_payload(x, s) for x in q.all()]
+
+
+@app.post("/admin/support/tickets/{ticket_id}/reply")
+def admin_reply_ticket(ticket_id: int, d: TicketReplyIn, u=Depends(role("admin")), s=Depends(db)):
+    ticket = s.get(SupportTicket, ticket_id)
+    message = d.message.strip()
+    if not ticket: raise HTTPException(404, "Ticket not found")
+    if not message: raise HTTPException(422, "Reply cannot be empty")
+    if len(message) > 5000: raise HTTPException(422, "Reply is too long")
+    s.add(SupportTicketMessage(ticket_id=ticket.id, user_id=u.id, message=message))
+    ticket.status = "in_progress"; ticket.updated_at = datetime.utcnow()
+    s.add(Notification(user_id=ticket.user_id, message=f"Admin replied to support ticket #{ticket.id}: {ticket.subject}"[:250]))
+    s.commit()
+    return ticket_payload(ticket, s)
+
+
+@app.put("/admin/support/tickets/{ticket_id}")
+def admin_update_ticket(ticket_id: int, d: TicketUpdateIn, u=Depends(role("admin")), s=Depends(db)):
+    ticket = s.get(SupportTicket, ticket_id)
+    if not ticket: raise HTTPException(404, "Ticket not found")
+    if d.status not in ("open", "in_progress", "resolved", "closed"):
+        raise HTTPException(422, "Invalid ticket status")
+    if d.priority is not None and d.priority not in ("low", "medium", "high"):
+        raise HTTPException(422, "Invalid priority")
+    ticket.status = d.status
+    if d.priority is not None: ticket.priority = d.priority
+    ticket.updated_at = datetime.utcnow()
+    s.commit()
+    return ticket_payload(ticket, s)
+
+
 # ---------- admin ----------
 @app.get("/admin/analytics")
 def analytics(u=Depends(role("admin")), s=Depends(db)):
