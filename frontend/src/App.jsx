@@ -84,7 +84,7 @@ function Reveal({children,delay=0,lazy}) {
 }
 function Sections({st}) {
   const steps=[["1","Upload your resume","We read it with OCR and pull out your skills."],["2","See your match","Every job shows a match percentage and the skills you are missing."],["3","Apply with confidence","Matches of 70% or more are shortlisted and get a skills test by email."]];
-  const roles=[["Job seekers","Scan your resume, see your match, and track every application."],["Recruiters","Ranked applicants, a drag and drop pipeline, and Excel export."],["Admins","Users, jobs and platform charts in one dashboard."]];
+  const roles=[["Job seekers","Scan your resume, see your match, and track every application."],["Recruiters","Ranked applicants, a drag-and-drop hiring board, and Excel export."],["Admins","Users, jobs and platform charts in one dashboard."]];
   return <div className="wrap sections">
     <Reveal><h2 className="center">How Matchly works</h2></Reveal>
     <div className="grid">{steps.map(([n,t,d],i)=><Reveal key={n} delay={i*120}><Tilt className="card"><span className="stepno">{n}</span><h3>{t}</h3><p className="muted">{d}</p></Tilt></Reveal>)}</div>
