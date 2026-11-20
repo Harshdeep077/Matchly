@@ -41,7 +41,23 @@ os.makedirs("uploads", exist_ok=True)
 
 @app.get("/health")
 def health():
+    # Liveness check: deliberately does not query the database, so the
+    # hosting platform can distinguish a running API process from DB readiness.
     return {"status": "ok", "database_configured": Session is not None}
+
+
+@app.get("/ready")
+def readiness():
+    # Readiness check for diagnostics; unlike /health this verifies a live DB connection.
+    if Session is None:
+        raise HTTPException(503, "Database is not configured")
+    from sqlalchemy import text
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception:
+        raise HTTPException(503, "Database connection is unavailable")
+    return {"status": "ready", "database": "connected"}
 
 @app.on_event("startup")
 def start():
