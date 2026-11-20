@@ -146,6 +146,8 @@ function Auth({mode,embedded,space}) {
   const [n,ok,err]=useNote();
   const [busy,setBusy]=useState(false);
   const [step,setStep]=useState("form");
+  const [resetCode,setResetCode]=useState("");
+  const [newPassword,setNewPassword]=useState("");
   const [code,setCode]=useState("");
   const [wait,setWait]=useState(0);
   const [life,setLife]=useState(0);
@@ -234,6 +236,45 @@ function Auth({mode,embedded,space}) {
   const exit=reduceMotion?{opacity:0}:{opacity:0,y:-12,filter:"blur(5px)"};
   const transition={duration:reduceMotion?0.01:0.35,ease:[0.22,1,0.36,1]};
 
+
+  const requestReset=async e=>{
+    e.preventDefault(); setBusy(true);
+    try {
+      const r=await call("/auth/forgot-password",{method:"POST",body:{email:f.email}});
+      setStep("reset"); setResetCode(""); setNewPassword(""); ok(r.message);
+    } catch(x) { err(x); } finally { setBusy(false); }
+  };
+
+  const completeReset=async e=>{
+    e.preventDefault(); setBusy(true);
+    try {
+      const r=await call("/auth/reset-password",{method:"POST",body:{email:f.email,code:resetCode,password:newPassword}});
+      setStep("form"); setF(v=>({...v,password:""})); setResetCode(""); setNewPassword(""); ok(r.message);
+    } catch(x) { err(x); } finally { setBusy(false); }
+  };
+
+  const forgot=<form className={embedded?"authform":"glass card"} onSubmit={requestReset}>
+    {!space&&<h2>Forgot password?</h2>}
+    <Note n={n}/>
+    <p className="muted">Enter your registered email address. We'll send you a password reset code.</p>
+    <label htmlFor="forgot-em">Email</label>
+    <input id="forgot-em" type="email" required value={f.email} onChange={set("email")}/>
+    <motion.button type="submit" className={space?"small":""} style={{marginTop:16,width:"100%"}} disabled={busy}>{busy?"Sending...":"Send reset code"}</motion.button>
+    <p className="muted switch"><button type="button" className="linkbtn" onClick={()=>setStep("form")}>Back to login</button></p>
+  </form>;
+
+  const reset=<form className={embedded?"authform":"glass card"} onSubmit={completeReset}>
+    {!space&&<h2>Reset password</h2>}
+    <Note n={n}/>
+    <p className="muted">Enter the 6-digit code sent to <b>{f.email}</b> and choose a new password.</p>
+    <label htmlFor="reset-code">Reset code</label>
+    <input id="reset-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} required value={resetCode} onChange={e=>setResetCode(e.target.value.replace(/\D/g,""))} placeholder="000000"/>
+    <label htmlFor="new-password">New password</label>
+    <input id="new-password" type="password" minLength={8} required value={newPassword} onChange={e=>setNewPassword(e.target.value)}/>
+    <motion.button type="submit" className={space?"small":""} style={{marginTop:16,width:"100%"}} disabled={busy||resetCode.length!==6}>{busy?"Updating...":"Reset password"}</motion.button>
+    <p className="muted switch"><button type="button" className="linkbtn" onClick={()=>setStep("forgot")}>Request another code</button></p>
+  </form>;
+
   const otp=<form className={embedded?"authform":"glass card"} onSubmit={verify}>
     <Note n={n}/>
     <p className="muted" style={{margin:"4px 0 10px"}}>Enter the 6-digit code sent to <b>{f.email}</b>.</p>
@@ -285,6 +326,7 @@ function Auth({mode,embedded,space}) {
     <label htmlFor="pw">Password</label>
     <input id="pw" type="password" required minLength={reg?8:1}
       value={f.password} onChange={set("password")}/>
+    {!reg&&<p className="muted" style={{textAlign:"right",margin:"6px 0 0"}}><button type="button" className="linkbtn" onClick={()=>setStep("forgot")}>Forgot password?</button></p>}
     <motion.button type="submit" className={space?"small":""}
       style={space?{margin:"16px auto 0",display:"block"}:{marginTop:16,width:"100%"}}
       disabled={busy}
@@ -295,7 +337,7 @@ function Auth({mode,embedded,space}) {
     </motion.button>
   </form>;
 
-  const view=step==="otp"?otp:form;
+  const view=step==="otp"?otp:step==="forgot"?forgot:step==="reset"?reset:form;
   return <AnimatePresence mode="wait" initial={false}>
     <motion.div key={step+mode} initial={initial} animate={animate} exit={exit} transition={transition}>
       {embedded?view:<div className="wrap" style={{maxWidth:440}}>{view}</div>}
