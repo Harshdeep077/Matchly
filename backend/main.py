@@ -868,7 +868,7 @@ def matchly_kb():
 
 @app.post("/support/chat")
 def support_chat(d: ChatMessageIn):
-    text = re.sub(r"\\s+", " ", d.message.strip().lower())
+    text = re.sub(r"\s+", " ", d.message.strip().lower())
     if not text:
         raise HTTPException(422, "Please enter a message")
     if len(text) > 600:
