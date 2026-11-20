@@ -436,7 +436,7 @@ const empty={title:"",description:"",location:"",min_exp:0,max_exp:2,job_type:"F
 function Recruiter() {
   const [newFile,setNewFile]=useState(null); const [manageId,setManageId]=useState(null); const [manageFile,setManageFile]=useState(null); const [busy,setBusy]=useState(false); const [jobs,setJ]=useState([]); const [ap,setAp]=useState([]); const [j,setF]=useState(empty); const [co,setCo]=useState();
   const [fs,setFs]=useState({skill:"",min_exp:"",auto:""}); const [n,ok,err]=useNote();
-  const [recordings,setRecordings]=useState([]); const [recordingsBusy,setRecordingsBusy]=useState(false);
+  const [recordings,setRecordings]=useState([]); const [recordingsBusy,setRecordingsBusy]=useState(false); const [meetingOpen,setMeetingOpen]=useState({}); const [meetingDrafts,setMeetingDrafts]=useState({}); const [meetingIds,setMeetingIds]=useState({});
   const loadRecordings=()=>{setRecordingsBusy(true);call("/recruiter/test-recordings").then(setRecordings).catch(err).finally(()=>setRecordingsBusy(false));};
   const load=()=>{ call("/recruiter/jobs").then(setJ).catch(err);
     call("/recruiter/applicants?"+new URLSearchParams(Object.entries(fs).filter(([,v])=>v!=="")).toString()).then(setAp).catch(err); };
@@ -446,17 +446,14 @@ function Recruiter() {
   const post=async e=>{
     e.preventDefault(); setBusy(true);
     try {
-      const created=await call("/jobs",{method:"POST",body:{...j,status:"draft",min_exp:+j.min_exp,max_exp:+j.max_exp,skills:j.skills.split(",").map(x=>x.trim()).filter(Boolean)}});
+      const created=await call("/jobs",{method:"POST",body:{...j,status:j.status,min_exp:+j.min_exp,max_exp:+j.max_exp,skills:j.skills.split(",").map(x=>x.trim()).filter(Boolean)}});
       let count=0;
       if(newFile) {
         const fd=new FormData(); fd.append("f",newFile);
         const result=await call(`/jobs/${created.id}/questions/import`,{method:"POST",form:fd});
         count=result.count;
       }
-      if(j.status==="published") {
-        await call(`/jobs/${created.id}/status`,{method:"PUT",body:{status:"published"}});
-        ok(count>=50?`Job published with assessment enabled (${count} questions).`:`Job published${count?` with ${count} assessment questions`:" without an assessment"}. Add at least ${Math.max(0,50-count)} more valid questions later to enable skills tests.`);
-      } else ok(`Draft saved${count?` with ${count} assessment questions`:""}.`);
+      ok(j.status==="published"?"Job published successfully. You can invite applicants to a test or schedule a meeting later.": "Job saved as draft.");
       setF({...empty}); setNewFile(null); e.target.reset(); load();
     } catch(ex) { err(ex); load(); }
     finally {setBusy(false);}
@@ -474,6 +471,7 @@ function Recruiter() {
   const jst=(id,s)=>call(`/jobs/${id}/status`,{method:"PUT",body:{status:s}}).then(()=>load()).catch(err);
   const ast=(id,s)=>call(`/applications/${id}/status`,{method:"PUT",body:{status:s}}).then(()=>{ok("Status updated");if(s==="Selected")confetti();load();}).catch(err);
   const sendTest=async id=>{setBusy(true);try{const r=await call(`/recruiter/applications/${id}/send-test`,{method:"POST"});ok(r.message);load();}catch(ex){err(ex);}finally{setBusy(false);}};
+  const scheduleMeeting=async id=>{const d=meetingDrafts[id]||{};if(!d.when)return err("Choose a meeting date and time.");setBusy(true);try{const r=await call("/recruiter/video-assessment/actions",{method:"POST",body:{application_id:id,kind:"meeting",title:(d.title||"Interview meeting").trim(),meeting_at:new Date(d.when).toISOString()}});setMeetingIds(old=>({...old,[id]:r.id}));setMeetingOpen(old=>({...old,[id]:false}));ok("Meeting scheduled and candidate notified.");}catch(ex){err(ex);}finally{setBusy(false);}};
   const view=id=>fetch(`${API}/resume/${id}/file`,{headers:{Authorization:"Bearer "+localStorage.getItem("tok")}}).then(r=>r.ok?r.blob():Promise.reject(new Error("Could not open resume"))).then(b=>window.open(URL.createObjectURL(b))).catch(err);
   return <div className="wrap"><h2>Recruiter dashboard</h2><Note n={n}/>
     <section className="glass card" style={{margin:"14px 0"}}>
@@ -521,7 +519,15 @@ function Recruiter() {
     {!ap.length?<div className="empty">No applicants match yet.</div>:<div className="glass card" style={{overflowX:"auto"}}><table><thead><tr><th>Candidate</th><th>Job</th><th>Match</th><th>Test</th><th>Skills</th><th>Status</th><th>Assessment</th><th>Resume</th></tr></thead><tbody>
       {ap.map(a=><tr key={a.id}><td><b>{a.name}</b><div className="muted">{a.email}<br/>{a.experience||"Experience not provided"}</div></td><td>{a.job}</td><td><Badge s={a.score}/></td><td><TestScore t={a.test}/></td><td><Tags a={a.skills}/></td>
         <td><select aria-label="Status" value={a.status} onChange={e=>ast(a.id,e.target.value)} disabled={["Withdrawn","Auto-rejected"].includes(a.status)}>{["Applied","Under Review","Shortlisted","Interview","Selected","Rejected","Withdrawn","Auto-rejected"].map(s=><option key={s} disabled={s==="Withdrawn"||s==="Auto-rejected"}>{s}</option>)}</select></td>
-        <td>{a.test?<span className="tag">{a.test.status==="completed"?`Completed ${a.test.score}/${a.test.total}`:a.test.status}</span>:<button className="ghost small" disabled={busy||["Withdrawn","Auto-rejected","Rejected"].includes(a.status)} onClick={()=>sendTest(a.id)}>Send test</button>}</td>
+        <td><div style={{display:"grid",gap:7,justifyItems:"start"}}>
+          {a.test?<span className="tag">{a.test.status==="completed"?`Completed ${a.test.score}/${a.test.total}`:a.test.status}</span>:<button className="ghost small" disabled={busy||["Withdrawn","Auto-rejected","Rejected"].includes(a.status)} onClick={()=>sendTest(a.id)}>Send test</button>}
+          {meetingIds[a.id]?<Link to={`/meeting/${meetingIds[a.id]}`}><button className="small">Join meeting</button></Link>:<button className="ghost small" disabled={["Withdrawn","Auto-rejected","Rejected"].includes(a.status)} onClick={()=>setMeetingOpen(old=>({...old,[a.id]:!old[a.id]}))}>{meetingOpen[a.id]?"Cancel":"Schedule meeting"}</button>}
+          {meetingOpen[a.id]&&<div style={{minWidth:190,display:"grid",gap:6}}>
+            <input aria-label="Meeting title" placeholder="Meeting title" value={meetingDrafts[a.id]?.title||""} onChange={e=>setMeetingDrafts(old=>({...old,[a.id]:{...old[a.id],title:e.target.value}}))}/>
+            <input aria-label="Meeting date and time" type="datetime-local" value={meetingDrafts[a.id]?.when||""} onChange={e=>setMeetingDrafts(old=>({...old,[a.id]:{...old[a.id],when:e.target.value}}))}/>
+            <button className="small" disabled={busy||!meetingDrafts[a.id]?.when} onClick={()=>scheduleMeeting(a.id)}>Confirm meeting</button>
+          </div>}
+        </div></td>
         <td><button className="ghost" onClick={()=>view(a.resume_id)}>Open</button></td></tr>)}</tbody></table></div>}</div>;
 }
 
