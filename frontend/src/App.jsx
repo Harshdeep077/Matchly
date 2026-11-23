@@ -539,7 +539,7 @@ function Recruiter() {
         <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}><div><h3 style={{margin:"0 0 4px"}}>Send assessment · {testModal.name}</h3><p className="muted" style={{margin:0}}>{testModal.job} · Choose how to prepare the question bank</p></div><button className="ghost small" disabled={aiGenerating||busy} onClick={()=>setTestModal(null)}>Close</button></div>
         <div className="glass card" style={{marginTop:14}}>
           <h4 style={{margin:"0 0 6px"}}>Option 1 · Existing question bank</h4>
-          <p className="muted">Use questions already uploaded for this job. Matchly requires at least 50 valid questions and selects 20 randomly for the candidate's test.</p>
+          <p className="muted">Use questions already uploaded for this job. Matchly requires at least 5 valid questions and selects up to 30 randomly for the candidate's test.</p>
           <button className="ghost" disabled={busy||aiGenerating} onClick={()=>sendExistingTest(testModal)}>Use existing questions & send</button>
         </div>
         <div className="glass card" style={{marginTop:12}}>
