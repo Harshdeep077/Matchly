@@ -18,7 +18,14 @@ if URL.startswith("mysql://"):
 
 # Allow the API health check to start before an external database is configured.
 # All database-backed endpoints return HTTP 503 until DATABASE_URL is set.
-engine = create_engine(URL, pool_pre_ping=True) if URL else None
+# TiDB Cloud Starter can close idle connections after five minutes.
+# Recycle pooled connections before that limit and ping on checkout.
+engine = create_engine(
+    URL,
+    pool_pre_ping=True,
+    pool_recycle=300,
+    pool_timeout=30,
+) if URL else None
 Session = sessionmaker(bind=engine) if engine is not None else None
 Base = declarative_base()
 PK = dict(primary_key=True)
