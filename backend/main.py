@@ -1,4 +1,4 @@
-import csv, hashlib, hmac, io, os, random, re, secrets, uuid, jwt, bcrypt
+import csv, hashlib, hmac, io, os, random, re, secrets, uuid, jwt, bcrypt, time
 from collections import Counter
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -1679,16 +1679,33 @@ def generate_ai_job_questions(jid: int, data: QuestionGenerationRequest,
             f"Role: {job.title}\nJob description: {(job.description or '')[:9000]}\n"
             f"Required skills: {', '.join(skills)}"
         )
-        response = client.models.generate_content(
-            model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_json_schema=schema,
-                temperature=0.35,
-                max_output_tokens=min(30000, data.count * 260)
-            )
+        model_name = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_json_schema=schema,
+            temperature=0.35,
+            max_output_tokens=min(30000, data.count * 260)
         )
+        response = None
+        for attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model=model_name, contents=prompt, config=config
+                )
+                break
+            except Exception as provider_error:
+                error_text = str(provider_error).lower()
+                transient = any(marker in error_text for marker in (
+                    "503", "unavailable", "429", "resource_exhausted",
+                    "500", "internal server error", "deadline exceeded"
+                ))
+                if not transient or attempt == 2:
+                    raise
+                delay = 2 ** attempt
+                print(f"[Gemini temporary error] retry {attempt + 1}/2 in {delay}s: {str(provider_error)[:300]}")
+                time.sleep(delay)
+        if response is None:
+            raise RuntimeError("Gemini did not return a response after retries.")
         payload = json.loads(response.text or "{}")
         raw_questions = payload.get("questions", [])
         if len(raw_questions) != data.count:
