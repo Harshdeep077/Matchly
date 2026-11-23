@@ -472,7 +472,7 @@ function Recruiter() {
   const jst=(id,s)=>call(`/jobs/${id}/status`,{method:"PUT",body:{status:s}}).then(()=>load()).catch(err);
   const ast=(id,s)=>call(`/applications/${id}/status`,{method:"PUT",body:{status:s}}).then(()=>{ok("Status updated");if(s==="Selected")confetti();load();}).catch(err);
   const sendExistingTest=async applicant=>{setBusy(true);try{const r=await call(`/recruiter/applications/${applicant.id}/send-test`,{method:"POST"});ok(r.message);setTestModal(null);load();}catch(ex){err(ex);}finally{setBusy(false);}};
-  const openTest=applicant=>{setAiQuestions([]);setAiCount(50);setAiDifficulty("mixed");setTestModal(applicant);};
+  const openTest=applicant=>{setAiQuestions([]);setAiCount(10);setAiDifficulty("mixed");setTestModal(applicant);};
   const generateAiQuestions=async()=>{if(!testModal)return;setAiGenerating(true);try{const r=await call(`/recruiter/jobs/${testModal.job_id}/questions/generate`,{method:"POST",body:{count:Number(aiCount),difficulty:aiDifficulty},timeout:180000});setAiQuestions(r.questions||[]);ok(`Gemini generated ${r.count} questions. Review them before approval.`);}catch(ex){err(ex);}finally{setAiGenerating(false);}};
   const approveAiAndSend=async()=>{if(!testModal||aiQuestions.length<5||aiQuestions.length>30)return err("Generate and review between 5 and 30 questions first.");setBusy(true);try{const saved=await call(`/jobs/${testModal.job_id}/questions/bulk`,{method:"POST",body:{questions:aiQuestions}});const sent=await call(`/recruiter/applications/${testModal.id}/send-test`,{method:"POST"});ok(`Saved ${saved.added} AI questions. ${sent.message}`);setTestModal(null);setAiQuestions([]);load();}catch(ex){err(ex);}finally{setBusy(false);}};
 
