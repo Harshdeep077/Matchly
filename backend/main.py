@@ -1645,7 +1645,16 @@ def generate_ai_job_questions(jid: int, data: QuestionGenerationRequest,
     try:
         from google import genai
         from google.genai import types
-        client = genai.Client(api_key=api_key)
+        # Give Gemini enough time to complete structured MCQ generation, while
+        # keeping each attempt below the frontend's 180-second request timeout.
+        # Disable SDK-level retries so the bounded retry loop below controls total time.
+        client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(
+                timeout=45_000,
+                retry_options=types.HttpRetryOptions(attempts=1),
+            ),
+        )
         schema = {
             "type": "OBJECT",
             "properties": {
@@ -1697,11 +1706,11 @@ def generate_ai_job_questions(jid: int, data: QuestionGenerationRequest,
                 error_text = str(provider_error).lower()
                 transient = any(marker in error_text for marker in (
                     "503", "unavailable", "429", "resource_exhausted",
-                    "500", "internal server error", "deadline exceeded"
+                    "500", "internal server error", "deadline exceeded", "504", "gateway timeout"
                 ))
                 if not transient or attempt == 2:
                     raise
-                delay = 2 ** attempt
+                delay = 2 ** (attempt + 1)
                 print(f"[Gemini temporary error] retry {attempt + 1}/2 in {delay}s: {str(provider_error)[:300]}")
                 time.sleep(delay)
         if response is None:
