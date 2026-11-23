@@ -436,7 +436,7 @@ const empty={title:"",description:"",location:"",min_exp:0,max_exp:2,job_type:"F
 function Recruiter() {
   const [newFile,setNewFile]=useState(null); const [manageId,setManageId]=useState(null); const [manageFile,setManageFile]=useState(null); const [busy,setBusy]=useState(false); const [jobs,setJ]=useState([]); const [ap,setAp]=useState([]); const [j,setF]=useState(empty); const [co,setCo]=useState();
   const [fs,setFs]=useState({skill:"",min_exp:"",auto:""}); const [n,ok,err]=useNote();
-  const [testModal,setTestModal]=useState(null); const [aiCount,setAiCount]=useState(50); const [aiDifficulty,setAiDifficulty]=useState("mixed"); const [aiQuestions,setAiQuestions]=useState([]); const [aiGenerating,setAiGenerating]=useState(false);
+  const [testModal,setTestModal]=useState(null); const [aiCount,setAiCount]=useState(10); const [aiDifficulty,setAiDifficulty]=useState("mixed"); const [aiQuestions,setAiQuestions]=useState([]); const [aiGenerating,setAiGenerating]=useState(false);
   const [recordings,setRecordings]=useState([]); const [recordingsBusy,setRecordingsBusy]=useState(false); const [meetingOpen,setMeetingOpen]=useState({}); const [meetingDrafts,setMeetingDrafts]=useState({}); const [meetingIds,setMeetingIds]=useState({});
   const loadRecordings=()=>{setRecordingsBusy(true);call("/recruiter/test-recordings").then(setRecordings).catch(err).finally(()=>setRecordingsBusy(false));};
   const load=()=>{ call("/recruiter/jobs").then(setJ).catch(err);
@@ -472,9 +472,9 @@ function Recruiter() {
   const jst=(id,s)=>call(`/jobs/${id}/status`,{method:"PUT",body:{status:s}}).then(()=>load()).catch(err);
   const ast=(id,s)=>call(`/applications/${id}/status`,{method:"PUT",body:{status:s}}).then(()=>{ok("Status updated");if(s==="Selected")confetti();load();}).catch(err);
   const sendExistingTest=async applicant=>{setBusy(true);try{const r=await call(`/recruiter/applications/${applicant.id}/send-test`,{method:"POST"});ok(r.message);setTestModal(null);load();}catch(ex){err(ex);}finally{setBusy(false);}};
-  const openTest=applicant=>{setAiQuestions([]);setAiCount(50);setAiDifficulty("mixed");setTestModal(applicant);};
+  const openTest=applicant=>{setAiQuestions([]);setAiCount(10);setAiDifficulty("mixed");setTestModal(applicant);};
   const generateAiQuestions=async()=>{if(!testModal)return;setAiGenerating(true);try{const r=await call(`/recruiter/jobs/${testModal.job_id}/questions/generate`,{method:"POST",body:{count:Number(aiCount),difficulty:aiDifficulty},timeout:180000});setAiQuestions(r.questions||[]);ok(`Gemini generated ${r.count} questions. Review them before approval.`);}catch(ex){err(ex);}finally{setAiGenerating(false);}};
-  const approveAiAndSend=async()=>{if(!testModal||aiQuestions.length<50)return err("Generate and review at least 50 questions first.");setBusy(true);try{const saved=await call(`/jobs/${testModal.job_id}/questions/bulk`,{method:"POST",body:{questions:aiQuestions}});const sent=await call(`/recruiter/applications/${testModal.id}/send-test`,{method:"POST"});ok(`Saved ${saved.added} AI questions. ${sent.message}`);setTestModal(null);setAiQuestions([]);load();}catch(ex){err(ex);}finally{setBusy(false);}};
+  const approveAiAndSend=async()=>{if(!testModal||aiQuestions.length<5||aiQuestions.length>30)return err("Generate and review between 5 and 30 questions first.");setBusy(true);try{const saved=await call(`/jobs/${testModal.job_id}/questions/bulk`,{method:"POST",body:{questions:aiQuestions}});const sent=await call(`/recruiter/applications/${testModal.id}/send-test`,{method:"POST"});ok(`Saved ${saved.added} AI questions. ${sent.message}`);setTestModal(null);setAiQuestions([]);load();}catch(ex){err(ex);}finally{setBusy(false);}};
 
   const scheduleMeeting=async id=>{const d=meetingDrafts[id]||{};if(!d.when)return err("Choose a meeting date and time.");setBusy(true);try{const r=await call("/recruiter/video-assessment/actions",{method:"POST",body:{application_id:id,kind:"meeting",title:(d.title||"Interview meeting").trim(),meeting_at:new Date(d.when).toISOString()}});setMeetingIds(old=>({...old,[id]:r.id}));setMeetingOpen(old=>({...old,[id]:false}));ok("Meeting scheduled and candidate notified.");}catch(ex){err(ex);}finally{setBusy(false);}};
   const view=id=>fetch(`${API}/resume/${id}/file`,{headers:{Authorization:"Bearer "+localStorage.getItem("tok")}}).then(r=>r.ok?r.blob():Promise.reject(new Error("Could not open resume"))).then(b=>window.open(URL.createObjectURL(b))).catch(err);
@@ -546,9 +546,9 @@ function Recruiter() {
           <h4 style={{margin:"0 0 6px"}}>Option 2 · Generate with Gemini AI</h4>
           <p className="muted">Gemini uses this job's title, description and required skills to create original MCQs. Review and edit the questions before saving and sending.</p>
           <div className="row" style={{alignItems:"end",flexWrap:"wrap"}}>
-            <label style={{display:"grid",gap:5,flex:"1 1 150px"}}>Number of questions<input type="number" min="50" max="200" value={aiCount} onChange={e=>setAiCount(e.target.value)} disabled={aiGenerating||aiQuestions.length>0}/></label>
+            <label style={{display:"grid",gap:5,flex:"1 1 150px"}}>Number of questions<input type="number" min="5" max="30" value={aiCount} onChange={e=>setAiCount(e.target.value)} disabled={aiGenerating||aiQuestions.length>0}/></label>
             <label style={{display:"grid",gap:5,flex:"1 1 150px"}}>Difficulty<select value={aiDifficulty} onChange={e=>setAiDifficulty(e.target.value)} disabled={aiGenerating||aiQuestions.length>0}><option value="mixed">Mixed</option><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label>
-            <button disabled={aiGenerating||busy||Number(aiCount)<50||Number(aiCount)>200||!Number.isInteger(Number(aiCount))} onClick={generateAiQuestions}>{aiGenerating?"Generating with Gemini...":"Generate questions"}</button>
+            <button disabled={aiGenerating||busy||Number(aiCount)<5||Number(aiCount)>30||!Number.isInteger(Number(aiCount))} onClick={generateAiQuestions}>{aiGenerating?"Generating with Gemini...":"Generate questions"}</button>
           </div>
           {aiQuestions.length>0&&<div style={{marginTop:14}}>
             <div className="row" style={{justifyContent:"space-between",alignItems:"center"}}><b>Preview · {aiQuestions.length} questions</b><button className="ghost small" disabled={busy} onClick={()=>setAiQuestions([])}>Discard & regenerate</button></div>

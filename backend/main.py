@@ -14,7 +14,7 @@ import ocr
 
 SECRET = os.getenv("SECRET_KEY", "change-me-in-env")
 ATS_MIN = 70  # minimum match percent to be shortlisted
-TEST_SIZE, TEST_MINUTES, LINK_DAYS = 20, 30, 3
+TEST_SIZE, MIN_TEST_QUESTIONS, TEST_MINUTES, LINK_DAYS = 30, 5, 30, 3
 PASS_PERCENT = int(os.getenv("PASS_PERCENT", "60"))  # passing marks as a percent of the test
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 STATUSES = ["Applied", "Under Review", "Shortlisted", "Interview", "Selected", "Rejected"]
@@ -457,7 +457,7 @@ def job_status(jid: int, d: St, u=Depends(role("recruiter", "admin")), s=Depends
     if d.status not in allowed: raise HTTPException(422, f"Status must be one of {allowed}")
     if u.role == "recruiter" and j.status == "disabled": raise HTTPException(403, "An admin disabled this job")
     # Assessment questions are optional. Jobs can be published without them;
-    # test invitations are created only when a job has at least 50 valid questions.
+    # test invitations are created only when a job has at least 5 valid questions.
     j.status = d.status; s.commit(); return {"message": "Updated"}
 
 @app.get("/recruiter/jobs")
@@ -567,7 +567,7 @@ def recruiter_send_test(aid: int, u=Depends(role("recruiter")), s=Depends(db)):
     fresh = create_test_attempt(application, candidate, job, s)
     if not fresh:
         count = s.query(Question).filter(Question.job_id == job.id).count()
-        raise HTTPException(422, f"This job has {count}/50 valid questions. Add at least {50-count} questions before sending a test.")
+        raise HTTPException(422, f"This job has {count}/5 valid questions. Add at least {max(0, 5-count)} more questions before sending a test.")
     if application.status in ("Applied", "Under Review"):
         application.status = "Shortlisted"
     s.add(Notification(user_id=candidate_user.id,
@@ -1310,11 +1310,11 @@ def send_mail(to, subject, body):
     except Exception as e: print("[EMAIL failed]", e)
 
 def pick_questions(c, j, s):
-    """Pick 20 random questions only from this job's question set."""
+    """Pick up to 30 random questions; small banks of 5+ are valid assessments."""
     pool = s.query(Question).filter(Question.job_id == j.id).all()
-    if len(pool) < 50:
+    if len(pool) < MIN_TEST_QUESTIONS:
         return [], []
-    chosen = random.sample(pool, TEST_SIZE)
+    chosen = random.sample(pool, min(TEST_SIZE, len(pool)))
     used = sorted({q.tech for q in chosen if q.tech})
     return chosen, used
 
@@ -1322,10 +1322,10 @@ def pick_questions(c, j, s):
 def create_test_attempt(a, c, j, s):
     """Create a separate test row so earlier attempts and their evidence remain intact."""
     qs, used = pick_questions(c, j, s)
-    if len(qs) != TEST_SIZE:
+    if len(qs) < MIN_TEST_QUESTIONS:
         return None
     t = Test(application_id=a.id, token=secrets.token_urlsafe(24), tech=", ".join(used),
-             question_ids=[q.id for q in qs], total=TEST_SIZE,
+             question_ids=[q.id for q in qs], total=len(qs),
              status="pending", expires=datetime.utcnow() + timedelta(days=LINK_DAYS))
     s.add(t)
     s.flush()
@@ -1632,8 +1632,8 @@ def generate_ai_job_questions(jid: int, data: QuestionGenerationRequest,
     job = s.get(Job, jid)
     if not job or job.recruiter_id != rec(u, s).id:
         raise HTTPException(404, "Job not found")
-    if data.count < 50 or data.count > 200:
-        raise HTTPException(422, "Choose between 50 and 200 questions so the job has a complete test bank.")
+    if data.count < 5 or data.count > 30:
+        raise HTTPException(422, "Choose between 5 and 30 questions.")
     if data.difficulty not in ("easy", "medium", "hard", "mixed"):
         raise HTTPException(422, "Difficulty must be easy, medium, hard, or mixed.")
     api_key = os.getenv("GEMINI_API_KEY")
@@ -1726,8 +1726,8 @@ def save_generated_job_questions(jid: int, data: SaveGeneratedQuestionsRequest,
     job = s.get(Job, jid)
     if not job or job.recruiter_id != rec(u, s).id:
         raise HTTPException(404, "Job not found")
-    if len(data.questions) < 50 or len(data.questions) > 200:
-        raise HTTPException(422, "Save between 50 and 200 questions.")
+    if len(data.questions) < 5 or len(data.questions) > 30:
+        raise HTTPException(422, "Save between 5 and 30 questions.")
     company_id = rec(u, s).company_id
     added = 0
     for item in data.questions:
@@ -1740,7 +1740,7 @@ def save_generated_job_questions(jid: int, data: SaveGeneratedQuestionsRequest,
         added += 1
     s.commit()
     total = s.query(Question).filter(Question.job_id == jid).count()
-    return {"added": added, "count": total, "required": 50, "ready": total >= 50}
+    return {"added": added, "count": total, "required": 5, "ready": total >= 5}
 
 
 @app.get("/jobs/{jid}/questions")
@@ -1753,7 +1753,7 @@ def job_question_status(jid: int, u=Depends(role("recruiter", "admin")), s=Depen
     questions = s.query(Question).filter(Question.job_id == jid).order_by(Question.id.asc()).all()
     count = len(questions)
     items = [{"id": q.id, "tech": q.tech, "text": q.text, "a": q.a, "b": q.b, "c": q.c, "d": q.d, "answer": q.answer} for q in questions]
-    return {"job_id": jid, "count": count, "required": 50, "ready": count >= 50, "items": items}
+    return {"job_id": jid, "count": count, "required": 5, "ready": count >= 5, "items": items}
 
 
 @app.post("/jobs/{jid}/questions/import")
@@ -1788,8 +1788,8 @@ async def import_job_questions(jid: int, f: UploadFile = File(...),
         raise HTTPException(422, "No valid questions found. Each row needs technology, question, four options, and answer A/B/C/D.")
     s.commit()
     total = s.query(Question).filter(Question.job_id == jid).count()
-    return {"added": added, "skipped": skipped, "count": total, "required": 50,
-            "ready": total >= 50, "message": f"Added {added} questions. This job now has {total}/50 valid questions."}
+    return {"added": added, "skipped": skipped, "count": total, "required": 5,
+            "ready": total >= 5, "message": f"Added {added} questions. This job now has {total}/5 minimum questions."}
 
 
 @app.put("/jobs/{jid}/questions/{qid}")
