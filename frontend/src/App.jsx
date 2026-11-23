@@ -465,7 +465,7 @@ function Recruiter() {
     try {
       const fd=new FormData();fd.append("f",manageFile);
       const result=await call(`/jobs/${id}/questions/import`,{method:"POST",form:fd});
-      ok(`Added ${result.added} questions. Total: ${result.count}/50.${result.skipped?` Skipped ${result.skipped} invalid rows.`:""}`);
+      ok(`Added ${result.added} questions. Total: ${result.count}/5 minimum.${result.skipped?` Skipped ${result.skipped} invalid rows.`:""}`);
       setManageFile(null);setManageId(null);load();
     }catch(ex){err(ex);}finally{setBusy(false);}
   };
@@ -505,7 +505,7 @@ function Recruiter() {
         <select aria-label="Type" value={j.job_type} onChange={set("job_type")}>{["Full-time","Part-time","Contract","Internship"].map(t=><option key={t}>{t}</option>)}</select>
         <input aria-label="Salary" placeholder="Salary (optional)" value={j.salary} onChange={set("salary")}/></div>
       <input aria-label="Skills" required placeholder="Required skills, comma separated" style={{margin:"8px 0"}} value={j.skills} onChange={set("skills")}/>
-      <div style={{margin:"12px 0"}}><b>Assessment questions (optional)</b><p className="muted">You can publish a job without an assessment. To enable the skills test, upload a CSV or XLSX with columns: technology, question, option_a, option_b, option_c, option_d, answer. At least 50 valid questions are needed to generate test invitations.</p>
+      <div style={{margin:"12px 0"}}><b>Assessment questions (optional)</b><p className="muted">You can publish a job without an assessment. To enable the skills test, upload a CSV or XLSX with columns: technology, question, option_a, option_b, option_c, option_d, answer. At least 5 valid questions are needed to generate test invitations.</p>
       <FileDropzone file={newFile} onFile={setNewFile} disabled={busy}/></div>
       <select aria-label="Status" value={j.status} onChange={set("status")} style={{marginBottom:8}}><option value="published">Publish now</option><option value="draft">Save as draft</option></select><br/><button disabled={busy}>{busy?"Saving...":"Save job"}</button></form>
     <h3>My jobs</h3>{!jobs.length?<div className="empty">No jobs yet. Post your first one above.</div>:jobs.map(x=><div key={x.id} className="glass card row" style={{alignItems:"center"}}>
@@ -515,7 +515,7 @@ function Recruiter() {
       </div>
       {manageId===x.id&&<div className="glass card" style={{width:"100%",marginTop:12,background:"rgba(255,255,255,.72)",color:"#24153f"}}>
         <h4 style={{color:"#24153f",margin:"0 0 6px"}}>Question management · {x.title}</h4>
-        <p style={{color:"#493b62",fontSize:".95rem",lineHeight:1.5}}>Upload or add to this job's own question set. Published jobs can receive additional questions; existing candidate tests keep their assigned questions.</p>
+        <p style={{color:"#493b62",fontSize:".95rem",lineHeight:1.5}}>Upload or add to this job's own question set. At least 5 valid questions are needed for assessments.</p>
         <FileDropzone file={manageFile} onFile={setManageFile} disabled={busy}/>
         <button disabled={busy||!manageFile} onClick={()=>manage(x.id)}>{busy?"Uploading...":"Upload questions"}</button>
       </div>}</div>)}
@@ -932,7 +932,7 @@ function RecruiterQuestionStudio() {
     try{
       const fd=new FormData();fd.append("f",file);
       const r=await call(`/jobs/${jobId}/questions/import`,{method:"POST",form:fd});
-      ok(`Added ${r.added} questions. This job now has ${r.count}/50 valid questions.${r.skipped?` ${r.skipped} invalid rows were skipped.`:""}`);
+      ok(`Added ${r.added} questions. This job now has ${r.count} valid questions.${r.skipped?` ${r.skipped} invalid rows were skipped.`:""}`);
       setFile(null);loadQuestions(jobId);loadJobs();
     }catch(e){err(e);}finally{setBusy(false);}
   };
@@ -945,7 +945,7 @@ function RecruiterQuestionStudio() {
     }catch(e){err(e);}finally{setBusy(false);}
   };
   const publish=async()=>{
-    if(!info?.ready){ok(`Add ${Math.max(0,50-(info?.count||0))} more valid questions before publishing.`,"err");return;}
+    if(!info?.ready){ok(`Add ${Math.max(0,5-(info?.count||0))} more valid questions before publishing.`,"err");return;}
     setBusy(true);
     try{await call(`/jobs/${jobId}/status`,{method:"PUT",body:{status:"published"}});ok("Job published successfully.");loadJobs();}
     catch(e){err(e);}finally{setBusy(false);}
@@ -966,11 +966,11 @@ function RecruiterQuestionStudio() {
     {jobId&&<>
       <section className="glass card" style={{marginBottom:16,background:"rgba(255,255,255,.78)",color:"#24153f"}}>
         <div className="row" style={{alignItems:"center",justifyContent:"space-between",flexWrap:"wrap"}}>
-          <div><h3 style={{margin:"0 0 5px",color:"#24153f"}}>Question set overview</h3><p style={{margin:0,color:"#514568"}}>Minimum required to publish: 50 valid MCQs</p></div>
-          <div style={{fontSize:"1.5rem",fontWeight:800,color:"#6d4aff"}}>{info?`${info.count}/50`:"Loading…"}</div>
+          <div><h3 style={{margin:"0 0 5px",color:"#24153f"}}>Question set overview</h3><p style={{margin:0,color:"#514568"}}>Minimum required to enable assessments: 5 valid MCQs</p></div>
+          <div style={{fontSize:"1.5rem",fontWeight:800,color:"#6d4aff"}}>{info?`${info.count}/5`:"Loading…"}</div>
         </div>
-        <div style={{height:10,background:"#e8ddf7",borderRadius:20,overflow:"hidden",margin:"14px 0"}}><div style={{height:"100%",width:`${Math.min(100,(info?.count||0)/50*100)}%`,background:"linear-gradient(90deg,#a855f7,#6755ff)",borderRadius:20}}/></div>
-        <p style={{color:"#514568",lineHeight:1.5}}>{info?.ready?"This job has enough questions to be published.":`Add ${Math.max(0,50-(info?.count||0))} more valid question(s) before publishing.`}</p>
+        <div style={{height:10,background:"#e8ddf7",borderRadius:20,overflow:"hidden",margin:"14px 0"}}><div style={{height:"100%",width:`${Math.min(100,(info?.count||0)/5*100)}%`,background:"linear-gradient(90deg,#a855f7,#6755ff)",borderRadius:20}}/></div>
+        <p style={{color:"#514568",lineHeight:1.5}}>{info?.ready?"This job has enough questions to enable assessments.":`Add ${Math.max(0,5-(info?.count||0))} more valid question(s) before publishing.`}</p>
         {selected?.status!=="published"&&<button disabled={busy||!info?.ready} onClick={publish}>Publish this job</button>}
       </section>
       <section className="glass card" style={{marginBottom:16,background:"rgba(255,255,255,.78)",color:"#24153f"}}>
