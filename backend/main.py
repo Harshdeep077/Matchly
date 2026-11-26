@@ -78,6 +78,8 @@ def start():
         finally:
             s.close()
 
+    seed_demo_accounts()
+
     delete_expired_recordings()
     if not recording_scheduler.running:
         recording_scheduler.add_job(
@@ -90,6 +92,52 @@ def start():
         recording_scheduler.start()
 
 def hp(p): return bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
+
+DEMO_PASSWORD = os.getenv("DEMO_PASSWORD", "MatchlyDemo@123")
+DEMO_USERS = {
+    "seeker": ("demo.seeker@matchly.com", "Matchly Demo Seeker", "candidate"),
+    "recruiter": ("demo.recruiter@matchly.com", "Matchly Demo Recruiter", "recruiter"),
+    # This is a distinct role, never a real platform administrator.
+    "admin": ("demo.admin@matchly.com", "Matchly Demo Admin", "demo_admin"),
+}
+
+def seed_demo_accounts():
+    """Create public demo identities once without ever changing existing accounts."""
+    s = Session()
+    try:
+        for key, (email, name, db_role) in DEMO_USERS.items():
+            user = s.query(User).filter_by(email=email).first()
+            if user:
+                if user.role != db_role:
+                    print(f"[DEMO] Skipping {email}: email already belongs to a non-demo role.")
+                    continue
+            else:
+                user = User(name=name, email=email, role=db_role,
+                            password_hash=hp(DEMO_PASSWORD), active=True)
+                s.add(user)
+                s.flush()
+
+            if db_role == "candidate":
+                if not s.query(Candidate).filter_by(user_id=user.id).first():
+                    s.add(Candidate(user_id=user.id, education="Demo profile",
+                                    experience="Entry level",
+                                    summary="Sample candidate profile for exploring Matchly."))
+            elif db_role == "recruiter":
+                if not s.query(Recruiter).filter_by(user_id=user.id).first():
+                    company = s.query(Company).filter_by(name="Matchly Demo Company").first()
+                    if not company:
+                        company = Company(name="Matchly Demo Company",
+                                          description="Sample company for exploring the recruiter workspace.",
+                                          contact=email)
+                        s.add(company)
+                        s.flush()
+                    s.add(Recruiter(user_id=user.id, company_id=company.id))
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        s.close()
 def db():
     if Session is None:
         raise HTTPException(503, "Database is not configured. Set DATABASE_URL on the backend service.")
@@ -281,6 +329,23 @@ def reset_password(d: PasswordResetComplete, s=Depends(db)):
     s.delete(reset)
     s.commit()
     return {"message": "Password updated successfully. You can now log in."}
+
+@app.post("/auth/demo-login")
+def demo_login(d: dict, s=Depends(db)):
+    """Authenticate only pre-seeded demo identities; callers cannot choose credentials."""
+    key = d.get("role") if isinstance(d, dict) else None
+    if key not in DEMO_USERS:
+        raise HTTPException(422, "Choose seeker, recruiter, or admin demo.")
+    email, _, expected_role = DEMO_USERS[key]
+    user = s.query(User).filter_by(email=email, role=expected_role, active=True).first()
+    if not user or not bcrypt.checkpw(DEMO_PASSWORD.encode(), user.password_hash.encode()):
+        raise HTTPException(503, "This demo account is not ready. Please contact the platform owner.")
+    # The public admin demo receives a distinct database role. It cannot pass
+    # role("admin") checks, so it never gains access to real admin APIs/data.
+    public_role = "admin" if key == "admin" else user.role
+    token = jwt.encode({"sub": str(user.id), "exp": datetime.utcnow() + timedelta(hours=2),
+                        "demo": True}, SECRET, algorithm="HS256")
+    return {"token": token, "role": public_role, "name": user.name, "demo": True}
 
 @app.post("/auth/login")
 def login(d: Login, s=Depends(db)):
