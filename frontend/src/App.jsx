@@ -95,7 +95,7 @@ function Sections({st}) {
 }
 
 function Front() {
-  const [space,setSpace]=useState("seeker"), [mode,setMode]=useState("login");
+  const [space,setSpace]=useState("seeker"), [mode,setMode]=useState("login"), [demoRole,setDemoRole]=useState("");
   const lines={seeker:"Find jobs that fit your skills.",recruiter:"Hire people who match.",admin:"Keep the platform running."};
   const skills=["Python","FastAPI","MySQL","Docker"];
   return <><div className="wrap split" data-space={space}>
@@ -110,8 +110,20 @@ function Front() {
       <div className="roles" role="tablist">{[["seeker","Job seeker"],["recruiter","Recruiter"],["admin","Admin"]].map(([k,t])=><button key={k} role="tab" aria-selected={space===k} className={space===k?"on":""} onClick={()=>{setSpace(k);setMode("login");}}>{t}</button>)}
         <i className="slider" style={{transform:`translateX(${["seeker","recruiter","admin"].indexOf(space)*100}%)`}}/></div>
       <p className="muted line" key={space}>{lines[space]}</p>
-      <Auth key={space+mode} mode={mode} space={space} embedded/>
-      <p className="muted switch">{space==="admin" ? "Admin accounts are created by the platform owner." : <>{mode==="login"?"New here? ":"Already have an account? "}<a href="#" onClick={e=>{e.preventDefault();setMode(mode==="login"?"register":"login");}}>{mode==="login"?"Create an account":"Log in"}</a></>}</p>
+      <Auth key={space+mode+demoRole} mode={mode} space={space} demoRole={demoRole} embedded/>
+      <p className="muted switch">{space==="admin" ? "Admin accounts are created by the platform owner." : <>{mode==="login"?"New here? ":"Already have an account? "}<a href="#" onClick={e=>{e.preventDefault();setMode(mode==="login"?"register":"login");setDemoRole("");}}>{mode==="login"?"Create an account":"Log in"}</a></>}</p>
+      {mode==="login"&&<div className="demo-workspace" style={{marginTop:18,paddingTop:14,borderTop:"1px solid var(--line, #e5e7eb)",textAlign:"center"}}>
+        <p className="muted" style={{fontSize:".76rem",margin:"0 0 10px"}}>Explore a demo workspace · Password: <b>MatchlyDemo@123</b></p>
+        <div style={{display:"flex",justifyContent:"center",gap:8,flexWrap:"wrap"}}>
+          {[
+            ["seeker","Job seeker","demo.seeker@matchly.com"],
+            ["recruiter","Recruiter","demo.recruiter@matchly.com"],
+            ["admin","Admin","demo.admin@matchly.com"]
+          ].map(([role,label])=><button key={role} type="button" className="ghost small" style={{fontSize:".76rem",padding:"7px 13px",border:"1px solid var(--line, #e5e7eb)",borderRadius:10}} onClick={()=>{setSpace(role);setMode("login");setDemoRole(role);}}>
+            {label}
+          </button>)}
+        </div>
+      </div>}
       <p className="muted switch"><Link to="/jobs">Browse jobs</Link> without an account</p></Tilt></div><Sections/></>;
 }
 
@@ -131,17 +143,25 @@ function Landing() {
         <div key={t} className="glass card lift"><h3>{t}</h3><p className="muted">{d}</p></div>)}</div></div>;
 }
 
-function Auth({mode,embedded,space}) {
+function Auth({mode,embedded,space,demoRole=""}) {
   const {login}=useAuth(), nav=useNavigate();
   const reg=mode==="register";
   const reduceMotion=useReducedMotion();
 
-  const [f,setF]=useState({
-    name:"",
-    email:"",
-    password:"",
-    role:space==="recruiter"?"recruiter":"candidate",
-    company:""
+  const demoAccounts = {
+    seeker:{email:"demo.seeker@matchly.com",password:"MatchlyDemo@123"},
+    recruiter:{email:"demo.recruiter@matchly.com",password:"MatchlyDemo@123"},
+    admin:{email:"demo.admin@matchly.com",password:"MatchlyDemo@123"}
+  };
+  const [f,setF]=useState(()=>{
+    const demo=demoAccounts[demoRole];
+    return {
+      name:"",
+      email:demo?.email||"",
+      password:demo?.password||"",
+      role:space==="recruiter"?"recruiter":"candidate",
+      company:""
+    };
   });
   const [n,ok,err]=useNote();
   const [busy,setBusy]=useState(false);
