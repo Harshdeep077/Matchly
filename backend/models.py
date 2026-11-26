@@ -272,6 +272,19 @@ class LiveInterviewRoom(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class VideoAssessmentSubmission(Base):
+    __tablename__ = "video_assessment_submissions"
+    id = Column(Integer, **PK)
+    action_id = Column(ForeignKey("video_assessment_actions.id"), nullable=False, unique=True, index=True)
+    application_id = Column(ForeignKey("applications.id"), nullable=False, index=True)
+    candidate_id = Column(ForeignKey("candidates.id"), nullable=False, index=True)
+    recruiter_id = Column(ForeignKey("recruiters.id"), nullable=False, index=True)
+    cloudinary_public_id = Column(String(255), nullable=False, unique=True)
+    resource_type = Column(String(30), default="video")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+
+
 class SupportTicket(Base):
     __tablename__ = "support_tickets"
     id = Column(Integer, **PK)

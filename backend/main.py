@@ -814,7 +814,12 @@ def video_assessment_passed(u=Depends(role("recruiter")), s=Depends(db)):
                          "due_at": x.due_at.isoformat() if x.due_at else None,
                          "meeting_at": x.meeting_at.isoformat() if x.meeting_at else None,
                          "meeting_url": x.meeting_url, "livekit": bool(s.query(LiveInterviewRoom).filter_by(action_id=x.id).first()),
-                         "status": x.status} for x in actions]
+                         "status": x.status,
+                         "submission_status": ("submitted" if s.query(VideoAssessmentSubmission).filter_by(action_id=x.id).first() else "pending"),
+                         "submission_url": (recording_playback_url(s.query(VideoAssessmentSubmission).filter_by(action_id=x.id).first().cloudinary_public_id)
+                                            if s.query(VideoAssessmentSubmission).filter_by(action_id=x.id).first() else None),
+                         "submitted_at": (s.query(VideoAssessmentSubmission).filter_by(action_id=x.id).first().created_at.isoformat()
+                                          if s.query(VideoAssessmentSubmission).filter_by(action_id=x.id).first() else None)} for x in actions]
         })
     return result
 
@@ -828,12 +833,76 @@ def candidate_video_assessment(u=Depends(role("candidate")), s=Depends(db)):
         .join(User, User.id == Recruiter.user_id)
         .filter(Application.candidate_id == candidate.id)
         .order_by(VideoAssessmentAction.created_at.desc()).all())
-    return [{"id": item.id, "kind": item.kind, "title": item.title, "instructions": item.instructions,
-             "due_at": item.due_at.isoformat() if item.due_at else None,
-             "meeting_at": item.meeting_at.isoformat() if item.meeting_at else None,
-             "meeting_url": item.meeting_url, "livekit": bool(s.query(LiveInterviewRoom).filter_by(action_id=item.id).first()),
-             "status": item.status, "job": job.title, "recruiter_name": recruiter_user.name}
-            for item, application, job, recruiter, recruiter_user in rows]
+    result = []
+    for item, application, job, recruiter, recruiter_user in rows:
+        submission = s.query(VideoAssessmentSubmission).filter_by(action_id=item.id).first() if item.kind == "video_assignment" else None
+        result.append({
+            "id": item.id, "kind": item.kind, "title": item.title, "instructions": item.instructions,
+            "due_at": item.due_at.isoformat() if item.due_at else None,
+            "meeting_at": item.meeting_at.isoformat() if item.meeting_at else None,
+            "meeting_url": item.meeting_url, "livekit": bool(s.query(LiveInterviewRoom).filter_by(action_id=item.id).first()),
+            "status": item.status, "job": job.title, "recruiter_name": recruiter_user.name,
+            "submission_status": "submitted" if submission else "pending",
+            "submitted_at": submission.created_at.isoformat() if submission else None
+        })
+    return result
+
+
+@app.post("/candidate/video-assessment/{action_id}/recording", status_code=201)
+async def submit_video_assessment_recording(action_id: int, video: UploadFile = File(...),
+                                            u=Depends(role("candidate")), s=Depends(db)):
+    candidate = cand(u, s)
+    action = s.get(VideoAssessmentAction, action_id)
+    application = s.get(Application, action.application_id) if action else None
+    if not action or action.kind != "video_assignment" or not application or application.candidate_id != candidate.id:
+        raise HTTPException(404, "Video assignment not found")
+    if s.query(VideoAssessmentSubmission).filter_by(action_id=action.id).first():
+        raise HTTPException(409, "You have already submitted this video assessment")
+    if action.due_at and action.due_at < datetime.utcnow():
+        raise HTTPException(410, "The submission deadline has passed")
+    content_type = (video.content_type or "").lower()
+    if not content_type.startswith("video/"):
+        raise HTTPException(415, "Please record a video using your webcam")
+    data = await video.read()
+    if not data:
+        raise HTTPException(400, "The recording is empty")
+    max_bytes = int(os.getenv("MAX_VIDEO_ASSESSMENT_MB", "250")) * 1024 * 1024
+    if len(data) > max_bytes:
+        raise HTTPException(413, f"Recording exceeds the {max_bytes // (1024*1024)} MB limit")
+    cloudinary = cloudinary_client()
+    import cloudinary.uploader
+    recruiter = s.get(Recruiter, action.recruiter_id)
+    try:
+        uploaded = cloudinary.uploader.upload_large(
+            io.BytesIO(data), resource_type="video", type="authenticated",
+            folder="matchly/video-assessments",
+            public_id=f"assessment-{action.id}-{uuid.uuid4().hex}",
+            overwrite=False, chunk_size=6_000_000,
+            context={"action_id": str(action.id), "candidate_id": str(candidate.id)}
+        )
+    except Exception as exc:
+        print("Video assessment upload failed:", str(exc))
+        raise HTTPException(502, "Could not save your video. Please try again.")
+    now = datetime.utcnow()
+    submission = VideoAssessmentSubmission(
+        action_id=action.id, application_id=application.id, candidate_id=candidate.id,
+        recruiter_id=recruiter.id, cloudinary_public_id=uploaded["public_id"],
+        created_at=now, expires_at=now + timedelta(days=30)
+    )
+    s.add(submission)
+    action.status = "submitted"
+    s.add(Notification(user_id=recruiter.user_id, message=f"Video assessment submitted: {action.title}"[:250]))
+    try:
+        s.commit()
+    except Exception:
+        s.rollback()
+        try:
+            cloudinary.uploader.destroy(uploaded["public_id"], resource_type="video", type="authenticated", invalidate=True)
+        except Exception:
+            pass
+        raise HTTPException(500, "Video uploaded but submission could not be saved. Please contact support.")
+    return {"message": "Your video assessment was submitted successfully", "submitted_at": now.isoformat()}
+
 
 @app.post("/recruiter/video-assessment/actions", status_code=201)
 def create_video_assessment_action(d: VideoAssessmentActionIn, u=Depends(role("recruiter")), s=Depends(db)):
