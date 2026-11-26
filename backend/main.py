@@ -1616,9 +1616,21 @@ def recruiter_proctoring_reviews(u=Depends(role("recruiter")), s=Depends(db)):
                 event_rows.append({"id": ev.id, "type": ev.event_type,
                     "description": ev.description or "",
                     "created_at": ev.created_at.isoformat() if ev.created_at else None})
+        recording = s.query(TestRecording).filter_by(test_id=t.id).first()
+        recording_url = None
+        recording_expires_at = None
+        if recording and recording.expires_at > datetime.utcnow():
+            recording_expires_at = recording.expires_at.isoformat()
+            try:
+                recording_url = recording_playback_url(recording.cloudinary_public_id)
+            except Exception as exc:
+                # A playback URL failure must not hide the proctoring review itself.
+                print("Could not create proctoring playback URL:", str(exc)[:300])
         out.append({"test_id": t.id, "application_id": a.id, "candidate_name": candidate_user.name,
             "candidate_email": candidate_user.email, "job": j.title, "attempt_status": t.status,
             "attempt_created": t.created.isoformat() if t.created else None,
+            "recording_url": recording_url, "recording_expires_at": recording_expires_at,
+            "recording_available": bool(recording_url),
             "warning_count": len(event_rows), "events": event_rows})
     return out
 
