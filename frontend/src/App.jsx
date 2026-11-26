@@ -811,6 +811,14 @@ function Pipeline() {
             <div>{ev.description}</div>
           </div>)}
         </div>
+        <div style={{marginTop:12,padding:12,borderRadius:12,background:"rgba(255,255,255,.68)"}}>
+          <b>Candidate's exam recording</b>
+          {r.recording_url
+            ? <video key={r.test_id} controls preload="metadata" playsInline src={r.recording_url}
+                style={{display:"block",width:"100%",maxHeight:420,marginTop:10,borderRadius:10,background:"#090b18"}} />
+            : <p className="muted" style={{margin:"8px 0 0"}}>No playable recording is linked to this attempt. It may not have uploaded successfully, or its 7-day retention period may have ended.</p>}
+          {r.recording_expires_at&&<div className="muted" style={{fontSize:".85rem",marginTop:6}}>Recording available until {new Date(r.recording_expires_at+"Z").toLocaleString()}</div>}
+        </div>
         <div className="row" style={{marginTop:12,flexWrap:"wrap"}}>
           <button className="small" onClick={()=>reviewAction(r.test_id,"reattempt")}>Allow Reattempt</button>
           <button className="danger small" onClick={()=>reviewAction(r.test_id,"disqualify")}>Disqualify</button>
