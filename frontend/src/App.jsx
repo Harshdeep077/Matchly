@@ -207,6 +207,11 @@ function Auth({mode,embedded,space,demoRole=""}) {
         setWait(60);
         setLife(r.minutes*60);
         sentNote(r);
+      } else if(demoRole) {
+        enter(await call("/auth/demo-login",{
+          method:"POST",
+          body:{role:demoRole}
+        }));
       } else {
         enter(await call("/auth/login",{
           method:"POST",
