@@ -102,7 +102,7 @@ DEMO_USERS = {
 }
 
 def seed_demo_accounts():
-    """Create public demo identities once without ever changing existing accounts."""
+    """Create public demo identities and isolated sample data without overwriting accounts."""
     s = Session()
     try:
         for key, (email, name, db_role) in DEMO_USERS.items():
@@ -118,12 +118,25 @@ def seed_demo_accounts():
                 s.flush()
 
             if db_role == "candidate":
-                if not s.query(Candidate).filter_by(user_id=user.id).first():
-                    s.add(Candidate(user_id=user.id, education="Demo profile",
-                                    experience="Entry level",
-                                    summary="Sample candidate profile for exploring Matchly."))
+                candidate = s.query(Candidate).filter_by(user_id=user.id).first()
+                if not candidate:
+                    candidate = Candidate(user_id=user.id, education="Demo profile",
+                                           experience="Entry level",
+                                           summary="Sample candidate profile for exploring Matchly.")
+                    s.add(candidate)
+                    s.flush()
+                for skill_name in ("Python", "FastAPI", "Git"):
+                    skill = s.query(Skill).filter_by(name=skill_name).first()
+                    if not skill:
+                        skill = Skill(name=skill_name)
+                        s.add(skill)
+                        s.flush()
+                    if not s.query(CandidateSkill).filter_by(candidate_id=candidate.id, skill_id=skill.id).first():
+                        s.add(CandidateSkill(candidate_id=candidate.id, skill_id=skill.id))
+
             elif db_role == "recruiter":
-                if not s.query(Recruiter).filter_by(user_id=user.id).first():
+                recruiter = s.query(Recruiter).filter_by(user_id=user.id).first()
+                if not recruiter:
                     company = s.query(Company).filter_by(name="Matchly Demo Company").first()
                     if not company:
                         company = Company(name="Matchly Demo Company",
@@ -134,9 +147,8 @@ def seed_demo_accounts():
                     recruiter = Recruiter(user_id=user.id, company_id=company.id)
                     s.add(recruiter)
                     s.flush()
-                else:
-                    recruiter = s.query(Recruiter).filter_by(user_id=user.id).first()
-                if recruiter and not s.query(Job).filter_by(recruiter_id=recruiter.id, title="Demo Python Developer").first():
+
+                if not s.query(Job).filter_by(recruiter_id=recruiter.id, title="Demo Python Developer").first():
                     job = Job(recruiter_id=recruiter.id, title="Demo Python Developer",
                               description="A sample role for exploring the Matchly recruiter and candidate workflows.",
                               location="Remote", min_exp=0, max_exp=2, job_type="Internship",
@@ -151,23 +163,14 @@ def seed_demo_accounts():
                             s.flush()
                         if not s.query(JobSkill).filter_by(job_id=job.id, skill_id=skill.id).first():
                             s.add(JobSkill(job_id=job.id, skill_id=skill.id))
-        elif db_role == "candidate":
-            candidate = s.query(Candidate).filter_by(user_id=user.id).first()
-            if candidate:
-                for skill_name in ("Python", "FastAPI", "Git"):
-                    skill = s.query(Skill).filter_by(name=skill_name).first()
-                    if not skill:
-                        skill = Skill(name=skill_name)
-                        s.add(skill)
-                        s.flush()
-                    if not s.query(CandidateSkill).filter_by(candidate_id=candidate.id, skill_id=skill.id).first():
-                        s.add(CandidateSkill(candidate_id=candidate.id, skill_id=skill.id))
+            # demo_admin intentionally has no admin role or admin data access.
         s.commit()
     except Exception:
         s.rollback()
         raise
     finally:
         s.close()
+
 def db():
     if Session is None:
         raise HTTPException(503, "Database is not configured. Set DATABASE_URL on the backend service.")
