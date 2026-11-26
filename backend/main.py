@@ -787,27 +787,29 @@ class VideoAssessmentActionIn(BaseModel):
 
 @app.get("/recruiter/video-assessment/passed")
 def video_assessment_passed(u=Depends(role("recruiter")), s=Depends(db)):
+    """List every applicant for this recruiter's jobs, regardless of test result."""
     recruiter = rec(u, s)
-    rows = (s.query(Application, Job, Candidate, User, Test)
+    rows = (s.query(Application, Job, Candidate, User)
         .join(Job, Job.id == Application.job_id)
         .join(Candidate, Candidate.id == Application.candidate_id)
         .join(User, User.id == Candidate.user_id)
-        .join(Test, Test.application_id == Application.id)
-        .filter(Job.recruiter_id == recruiter.id, Test.status == "completed")
-        .order_by(Test.completed.desc(), Test.id.desc()).all())
-    seen, result = set(), []
-    for application, job, candidate, candidate_user, test in rows:
-        if application.id in seen:
-            continue
-        seen.add(application.id)
-        if not test.total or test.score is None or test.score < pass_mark(test.total):
-            continue
-        actions = s.query(VideoAssessmentAction).filter_by(application_id=application.id, recruiter_id=recruiter.id).order_by(VideoAssessmentAction.created_at.desc()).all()
+        .filter(Job.recruiter_id == recruiter.id)
+        .order_by(Application.id.desc()).all())
+    result = []
+    for application, job, candidate, candidate_user in rows:
+        test = (s.query(Test).filter_by(application_id=application.id)
+            .order_by(Test.id.desc()).first())
+        actions = (s.query(VideoAssessmentAction)
+            .filter_by(application_id=application.id, recruiter_id=recruiter.id)
+            .order_by(VideoAssessmentAction.created_at.desc()).all())
+        passed = bool(test and test.total and test.score is not None and test.score >= pass_mark(test.total))
         result.append({
             "application_id": application.id, "candidate_name": candidate_user.name,
             "candidate_email": candidate_user.email, "job": job.title,
-            "score": test.score, "total": test.total,
-            "passed_at": (test.completed or test.created).isoformat(),
+            "application_status": application.status,
+            "score": test.score if test else None, "total": test.total if test else None,
+            "test_status": test.status if test else None, "passed": passed,
+            "passed_at": (test.completed or test.created).isoformat() if passed and (test.completed or test.created) else None,
             "actions": [{"id": x.id, "kind": x.kind, "title": x.title, "instructions": x.instructions,
                          "due_at": x.due_at.isoformat() if x.due_at else None,
                          "meeting_at": x.meeting_at.isoformat() if x.meeting_at else None,
@@ -839,7 +841,7 @@ def create_video_assessment_action(d: VideoAssessmentActionIn, u=Depends(role("r
     application = s.get(Application, d.application_id)
     job = s.get(Job, application.job_id) if application else None
     if not application or not job or job.recruiter_id != recruiter.id:
-        raise HTTPException(404, "Passed candidate application not found")
+        raise HTTPException(404, "Applicant application not found")
     if d.kind not in ("video_assignment", "meeting"):
         raise HTTPException(422, "Type must be video_assignment or meeting")
     if not d.title.strip():
