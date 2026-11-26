@@ -785,6 +785,48 @@ class VideoAssessmentActionIn(BaseModel):
     meeting_at: Optional[datetime] = None
     meeting_url: Optional[str] = None
 
+@app.delete("/recruiter/video-assessment/actions/{action_id}")
+def delete_video_assessment_action(action_id: int, u=Depends(role("recruiter")), s=Depends(db)):
+    """Delete an assessment owned by this recruiter and remove its private Cloudinary recording."""
+    recruiter = rec(u, s)
+    action = s.get(VideoAssessmentAction, action_id)
+    if not action or action.recruiter_id != recruiter.id:
+        raise HTTPException(404, "Video assessment not found")
+
+    submission = s.query(VideoAssessmentSubmission).filter_by(
+        action_id=action.id, recruiter_id=recruiter.id
+    ).first()
+    if submission:
+        import cloudinary.uploader
+        cloudinary_client()
+        try:
+            result = cloudinary.uploader.destroy(
+                submission.cloudinary_public_id,
+                resource_type="video", type="authenticated", invalidate=True
+            )
+            if result.get("result") not in ("ok", "not found"):
+                raise HTTPException(502, "Could not delete the stored video. Assessment was not deleted.")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            print("Assessment video deletion failed:", str(exc))
+            raise HTTPException(502, "Could not delete the stored video. Please retry.")
+
+    candidate = s.get(Candidate, s.get(Application, action.application_id).candidate_id)
+    candidate_user = s.get(User, candidate.user_id) if candidate else None
+    if candidate_user:
+        s.add(Notification(user_id=candidate_user.id,
+                           message=f"Video assessment removed by recruiter: {action.title}"[:250]))
+    if submission:
+        s.delete(submission)
+    room = s.query(LiveInterviewRoom).filter_by(action_id=action.id).first()
+    if room:
+        s.delete(room)
+    s.delete(action)
+    s.commit()
+    return {"message": "Video assessment deleted successfully"}
+
+
 @app.get("/recruiter/video-assessment/passed")
 def video_assessment_passed(u=Depends(role("recruiter")), s=Depends(db)):
     """List every applicant for this recruiter's jobs, regardless of test result."""
