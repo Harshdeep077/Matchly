@@ -131,7 +131,37 @@ def seed_demo_accounts():
                                           contact=email)
                         s.add(company)
                         s.flush()
-                    s.add(Recruiter(user_id=user.id, company_id=company.id))
+                    recruiter = Recruiter(user_id=user.id, company_id=company.id)
+                    s.add(recruiter)
+                    s.flush()
+                else:
+                    recruiter = s.query(Recruiter).filter_by(user_id=user.id).first()
+                if recruiter and not s.query(Job).filter_by(recruiter_id=recruiter.id, title="Demo Python Developer").first():
+                    job = Job(recruiter_id=recruiter.id, title="Demo Python Developer",
+                              description="A sample role for exploring the Matchly recruiter and candidate workflows.",
+                              location="Remote", min_exp=0, max_exp=2, job_type="Internship",
+                              salary="Demo position", status="published")
+                    s.add(job)
+                    s.flush()
+                    for skill_name in ("Python", "FastAPI", "SQL"):
+                        skill = s.query(Skill).filter_by(name=skill_name).first()
+                        if not skill:
+                            skill = Skill(name=skill_name)
+                            s.add(skill)
+                            s.flush()
+                        if not s.query(JobSkill).filter_by(job_id=job.id, skill_id=skill.id).first():
+                            s.add(JobSkill(job_id=job.id, skill_id=skill.id))
+        elif db_role == "candidate":
+            candidate = s.query(Candidate).filter_by(user_id=user.id).first()
+            if candidate:
+                for skill_name in ("Python", "FastAPI", "Git"):
+                    skill = s.query(Skill).filter_by(name=skill_name).first()
+                    if not skill:
+                        skill = Skill(name=skill_name)
+                        s.add(skill)
+                        s.flush()
+                    if not s.query(CandidateSkill).filter_by(candidate_id=candidate.id, skill_id=skill.id).first():
+                        s.add(CandidateSkill(candidate_id=candidate.id, skill_id=skill.id))
         s.commit()
     except Exception:
         s.rollback()
