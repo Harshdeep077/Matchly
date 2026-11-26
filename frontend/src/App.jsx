@@ -833,9 +833,81 @@ function Pipeline() {
 
 function CandidateVideoAssessment() {
   const [items,setItems]=useState([]); const [n,ok,err]=useNote();
-  useEffect(()=>{call("/candidate/video-assessment").then(setItems).catch(err);},[]);
+  const [cameraAction,setCameraAction]=useState(null);
+  const [recording,setRecording]=useState(false);
+  const [recordedBlob,setRecordedBlob]=useState(null);
+  const [previewUrl,setPreviewUrl]=useState("");
+  const [seconds,setSeconds]=useState(0);
+  const [busy,setBusy]=useState(false);
+  const streamRef=useRef(null); const recorderRef=useRef(null); const chunksRef=useRef([]);
+  const liveVideoRef=useRef(null);
+  const load=()=>call("/candidate/video-assessment").then(setItems).catch(err);
+  useEffect(()=>{load();return()=>{if(streamRef.current)streamRef.current.getTracks().forEach(t=>t.stop());if(previewUrl)URL.revokeObjectURL(previewUrl);};},[]);
+  useEffect(()=>{if(liveVideoRef.current&&streamRef.current)liveVideoRef.current.srcObject=streamRef.current;},[cameraAction,recording]);
+  useEffect(()=>{if(!recording)return;const timer=setInterval(()=>setSeconds(s=>s+1),1000);return()=>clearInterval(timer);},[recording]);
+  const stopCamera=()=>{if(streamRef.current){streamRef.current.getTracks().forEach(t=>t.stop());streamRef.current=null;}};
+  const openCamera=async id=>{
+    try{
+      if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)throw new Error("Your browser does not support webcam recording. Please use the latest Chrome or Edge.");
+      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user"},audio:true});
+      streamRef.current=stream;setCameraAction(id);setRecordedBlob(null);setSeconds(0);
+      setPreviewUrl(old=>{if(old)URL.revokeObjectURL(old);return "";});
+    }catch(e){err(e.message||"Please allow camera and microphone access to record your assessment.");}
+  };
+  const startRecording=()=>{
+    if(!streamRef.current)return;
+    try{
+      const mimeType=["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm"].find(t=>MediaRecorder.isTypeSupported(t));
+      const recorder=new MediaRecorder(streamRef.current,mimeType?{mimeType}:undefined);
+      chunksRef.current=[];recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunksRef.current.push(e.data);};
+      recorder.onstop=()=>{
+        const blob=new Blob(chunksRef.current,{type:recorder.mimeType||"video/webm"});
+        setRecordedBlob(blob);setPreviewUrl(URL.createObjectURL(blob));setRecording(false);stopCamera();
+      };
+      recorder.start(1000);recorderRef.current=recorder;setRecording(true);setSeconds(0);
+    }catch(e){err("Could not start webcam recording: "+e.message);}
+  };
+  const stopRecording=()=>{if(recorderRef.current&&recorderRef.current.state!=="inactive")recorderRef.current.stop();};
+  const cancelRecording=()=>{
+    if(recorderRef.current&&recorderRef.current.state!=="inactive")recorderRef.current.stop();
+    stopCamera();setCameraAction(null);setRecording(false);setRecordedBlob(null);
+    setPreviewUrl(old=>{if(old)URL.revokeObjectURL(old);return "";});setSeconds(0);
+  };
+  const submitRecording=async()=>{
+    if(!cameraAction||!recordedBlob)return;
+    setBusy(true);
+    try{
+      const form=new FormData();form.append("video",recordedBlob,"matchly-video-assessment.webm");
+      const response=await fetch(`${API}/candidate/video-assessment/${cameraAction}/recording`,{
+        method:"POST",headers:{Authorization:"Bearer "+localStorage.getItem("tok")},body:form
+      });
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(data.detail||"Video submission failed. Please try again.");
+      ok(data.message||"Video assessment submitted.");cancelRecording();load();
+    }catch(e){err(e.message||"Could not submit your recording.");}
+    finally{setBusy(false);}
+  };
+  const fmt=t=>String(Math.floor(t/60)).padStart(2,"0")+":"+String(t%60).padStart(2,"0");
   return <div className="wrap"><h2>My Video Assessments</h2><p className="muted">Next-round assignments and recruiter meetings for your applications.</p><Note n={n}/>
-    {!items.length?<div className="glass card"><p className="muted">No video assignments or meetings have been scheduled for you yet.</p></div>:<div style={{display:"grid",gap:14}}>{items.map(x=><article className="glass card" key={x.id}><span className="tag ok">{x.kind==="meeting"?"Meeting":"Video assignment"}</span><h3>{x.title}</h3><div className="muted">{x.job} · Recruiter: {x.recruiter_name}</div>{x.instructions&&<p style={{whiteSpace:"pre-wrap"}}>{x.instructions}</p>}{x.due_at&&<p className="muted">Submission deadline: {new Date(x.due_at+"Z").toLocaleString()}</p>}{x.meeting_at&&<p className="muted">Meeting time: {new Date(x.meeting_at+"Z").toLocaleString()}</p>}{x.kind==="meeting"&&x.livekit&&<Link to={`/meeting/${x.id}`}><button>Join Live Interview</button></Link>}{x.meeting_url&&<a href={x.meeting_url} target="_blank" rel="noreferrer"><button className="ghost">Optional external meeting</button></a>}</article>)}</div>}
+    {!items.length?<div className="glass card"><p className="muted">No video assignments or meetings have been scheduled for you yet.</p></div>:<div style={{display:"grid",gap:14}}>{items.map(x=><article className="glass card" key={x.id}>
+      <span className="tag ok">{x.kind==="meeting"?"Meeting":"Video assignment"}</span><h3>{x.title}</h3><div className="muted">{x.job} · Recruiter: {x.recruiter_name}</div>
+      {x.instructions&&<p style={{whiteSpace:"pre-wrap"}}>{x.instructions}</p>}
+      {x.due_at&&<p className="muted">Submission deadline: {new Date(x.due_at+"Z").toLocaleString()}</p>}
+      {x.meeting_at&&<p className="muted">Meeting time: {new Date(x.meeting_at+"Z").toLocaleString()}</p>}
+      {x.kind==="meeting"&&x.livekit&&<Link to={`/meeting/${x.id}`}><button>Join Live Interview</button></Link>}
+      {x.meeting_url&&<a href={x.meeting_url} target="_blank" rel="noreferrer"><button className="ghost">Optional external meeting</button></a>}
+      {x.kind==="video_assignment"&&(x.submission_status==="submitted"?<div className="tag ok" style={{marginTop:12}}>Video submitted · {x.submitted_at?new Date(x.submitted_at+"Z").toLocaleString():""}</div>:<button style={{marginTop:12}} onClick={()=>openCamera(x.id)} disabled={cameraAction!==null&&cameraAction!==x.id}>Record with webcam</button>)}
+      {cameraAction===x.id&&<div style={{marginTop:14,padding:14,borderRadius:14,background:"rgba(100,120,180,.09)"}}>
+        <b>Webcam recording</b>
+        {!recordedBlob?<><video ref={liveVideoRef} autoPlay muted playsInline style={{display:"block",width:"100%",maxHeight:360,background:"#080b18",borderRadius:12,marginTop:10}}/>
+          <div className="row" style={{alignItems:"center",gap:10,marginTop:10}}>{recording?<><span className="tag no">Recording · {fmt(seconds)}</span><button className="danger" onClick={stopRecording}>Stop recording</button></>:<><button onClick={startRecording}>Start recording</button><button className="ghost" onClick={cancelRecording}>Cancel</button></>}</div>
+          <p className="muted" style={{fontSize:".85rem"}}>Allow camera and microphone access. Keep this page open until your video is submitted.</p>
+        </>:<>
+          <video controls playsInline src={previewUrl} style={{display:"block",width:"100%",maxHeight:360,background:"#080b18",borderRadius:12,marginTop:10}}/>
+          <div className="row" style={{gap:10,marginTop:10,flexWrap:"wrap"}}><button disabled={busy} onClick={submitRecording}>{busy?"Submitting...":"Submit video"}</button><button className="ghost" disabled={busy} onClick={()=>openCamera(x.id)}>Record again</button><button className="ghost" disabled={busy} onClick={cancelRecording}>Cancel</button></div>
+        </>}
+      </div>}
+    </article>)}</div>}
   </div>;
 }
 
